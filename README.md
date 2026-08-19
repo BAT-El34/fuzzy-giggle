@@ -4,9 +4,11 @@ Branche dédiée au développement et aux tests de **DraftWA Mobile**. Le mini-s
 
 ## Objectif
 
-Ce banc de test installe l'APK DraftWA sur de vrais Android Emulator GitHub Actions et vérifie automatiquement :
+Ce banc de test reconstruit l'APK DraftWA source, applique les correctifs DEX validés, la signe avec une clé CI temporaire puis l'installe sur de vrais Android Emulator GitHub Actions. Il vérifie automatiquement :
 
-- installation de l'APK ;
+- intégrité SHA-256 de l'APK source ;
+- correction structurelle de `classes2.dex` ;
+- installation de l'APK corrigée ;
 - lancement de `com.draftwa.mobile` ;
 - maintien du processus après démarrage ;
 - présence de `FATAL EXCEPTION` liée à DraftWA ;
@@ -16,10 +18,29 @@ Ce banc de test installe l'APK DraftWA sur de vrais Android Emulator GitHub Acti
 
 ## Matrice Android
 
-Les smoke tests sont exécutés sur les API Android 30, 34 et 35.
+Smoke tests : API Android 30, 34 et 35.
 
-## APK testée
+## Correctifs DEX validés
 
-`apk/DraftWA_Mobile_Drafts_v0.6.1_SAFE.apk`
+Deux défauts du générateur DEX initial ont été isolés :
 
-SHA-256 attendu : `106ab80a592e80649c983707b08785c9806db25ed5b1ed87c999c6cc748a4df3`
+1. `outs_size` était fixé à `8` même lorsque `registers_size` était inférieur ;
+2. les nibbles `argument_count` et `G` du format Dalvik `invoke-* / 35c` étaient inversés.
+
+Le patch CI corrige les deux défauts, recalcule la signature SHA-1 et le checksum Adler-32 du DEX, puis re-signe l'APK pour le test.
+
+## Dernier résultat validé
+
+Run GitHub Actions `32285225103` :
+
+- Android 11 / API 30 : **PASS** ;
+- Android 14 / API 34 : **PASS** ;
+- Android 15 / API 35 : **PASS**.
+
+Dans les trois cas, l'APK corrigée s'installe, se lance et le processus `com.draftwa.mobile` reste vivant pendant la fenêtre de contrôle sans `FATAL EXCEPTION` détectée.
+
+## APK source
+
+`DraftWA_Mobile_Drafts_v0.6.1_SAFE.apk`
+
+SHA-256 source : `106ab80a592e80649c983707b08785c9806db25ed5b1ed87c999c6cc748a4df3`
