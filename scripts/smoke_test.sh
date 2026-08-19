@@ -16,8 +16,8 @@ cleanup_and_collect() {
 }
 trap cleanup_and_collect EXIT
 
-echo "== Reconstruct APK from repository payload =="
-PARTS=(apk/parts/part_*.b64)
+echo "== Reconstruct APK from exact repository payload =="
+PARTS=(apk/payload/part_*.b64)
 if [[ ! -e "${PARTS[0]}" ]]; then
   echo "APK payload parts are missing." >&2
   exit 2
