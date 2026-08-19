@@ -3,9 +3,10 @@ set -Eeuo pipefail
 
 APK_PATH="apk/DraftWA_Mobile_Drafts_v0.6.1_SAFE.apk"
 PACKAGE="com.draftwa.mobile"
+EXPECTED_SHA256="106ab80a592e80649c983707b08785c9806db25ed5b1ed87c999c6cc748a4df3"
 API_LABEL="${API_LEVEL:-unknown}"
 OUT="artifacts/api-${API_LABEL}"
-mkdir -p "$OUT"
+mkdir -p "$OUT" apk
 
 cleanup_and_collect() {
   adb logcat -d -v threadtime > "$OUT/logcat.txt" 2>/dev/null || true
@@ -15,10 +16,13 @@ cleanup_and_collect() {
 }
 trap cleanup_and_collect EXIT
 
-if [[ ! -f "$APK_PATH" ]]; then
-  echo "APK missing: $APK_PATH" >&2
+echo "== Reconstruct APK from repository payload =="
+PARTS=(apk/parts/part_*.b64)
+if [[ ! -e "${PARTS[0]}" ]]; then
+  echo "APK payload parts are missing." >&2
   exit 2
 fi
+cat "${PARTS[@]}" | tr -d '\r\n' | base64 --decode > "$APK_PATH"
 
 echo "== Device =="
 adb wait-for-device
@@ -26,7 +30,8 @@ adb shell getprop ro.build.version.release | tee "$OUT/android-release.txt"
 adb shell getprop ro.build.version.sdk | tee "$OUT/android-sdk.txt"
 
 echo "== APK integrity =="
-echo "106ab80a592e80649c983707b08785c9806db25ed5b1ed87c999c6cc748a4df3  $APK_PATH" | sha256sum -c - | tee "$OUT/sha256-check.txt"
+echo "$EXPECTED_SHA256  $APK_PATH" | sha256sum -c - | tee "$OUT/sha256-check.txt"
+stat -c 'bytes=%s' "$APK_PATH" | tee "$OUT/apk-size.txt"
 
 echo "== Install =="
 adb install -r "$APK_PATH" | tee "$OUT/install.txt"
