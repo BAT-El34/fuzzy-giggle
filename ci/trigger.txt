@@ -1,1 +1,1 @@
-DraftWA startup smoke test — exact APK payload verified — 2026-08-19
+DraftWA startup smoke test — DEX outs_size fix — 2026-08-19 run 2
