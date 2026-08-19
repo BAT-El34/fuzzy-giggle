@@ -1,1 +1,1 @@
-DraftWA startup smoke test — DEX outs_size fix — 2026-08-19 run 2
+DraftWA startup smoke test — DEX outs_size + invoke-35c fix — 2026-08-19 run 3
