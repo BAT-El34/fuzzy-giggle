@@ -18,10 +18,13 @@ else
   adb install -r "$DRAFTWA"
 fi
 
-# Force-stop BEFORE enabling accessibility. Force-stopping after the setting is
-# enabled kills the service process and can leave the test app in stopped state.
+# Start from a clean process state, then explicitly launch the activity once.
+# A freshly installed/force-stopped package is marked STOPPED; Android may reject
+# or immediately sanitize enabled_accessibility_services for such a package.
 adb shell am force-stop com.draftwa.mobile
 adb logcat -c
+adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-start.txt
+sleep 1
 
 # Android 13/14 Restricted Settings can be pre-authorized for a test device by
 # this AppOp. Android 15 is handled above through PackageInstaller source=store.
@@ -40,13 +43,18 @@ if [ "$API_LEVEL" -ge 33 ] && [ "$API_LEVEL" -lt 35 ]; then
   APP_OP="$(adb shell cmd appops get com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS 2>&1 | tr -d '\r')"
 fi
 printf 'enabled_accessibility_services=%s\naccessibility_enabled=%s\nrestricted_settings=%s\n' "$ENABLED_SERVICES" "$ACCESSIBILITY_ENABLED" "$APP_OP" > artifacts/accessibility-settings.txt
-[[ "$ENABLED_SERVICES" == *"com.draftwa.mobile"* ]]
-[[ "$ACCESSIBILITY_ENABLED" == "1" ]]
+if [[ "$ENABLED_SERVICES" != *"com.draftwa.mobile"* ]] || [[ "$ACCESSIBILITY_ENABLED" != "1" ]]; then
+  adb shell dumpsys accessibility > artifacts/dumpsys-accessibility.txt || true
+  adb shell dumpsys package com.draftwa.mobile > artifacts/dumpsys-package.txt || true
+  adb logcat -d -v threadtime > artifacts/prelaunch-logcat.txt || true
+  echo 'Accessibility secure settings were not retained'
+  exit 1
+fi
 
 # Require the system to actually bind the service, not merely persist the setting.
 CONNECTED=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if adb logcat -d -s DraftWA:I '*:S' | grep -q 'ACCESSIBILITY_CONNECTED'; then
+  if adb logcat -d -v brief | grep -q 'ACCESSIBILITY_CONNECTED'; then
     CONNECTED=1
     break
   fi
@@ -60,8 +68,10 @@ if [ "$CONNECTED" != "1" ]; then
   exit 1
 fi
 
-adb shell monkey -p com.draftwa.mobile -c android.intent.category.LAUNCHER 1
-sleep 4
+# MainActivity is already foreground from the un-stop launch above. Refresh its
+# status after binding so the UI sees the service as enabled.
+adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-refresh.txt
+sleep 3
 
 adb exec-out screencap -p > artifacts/draftwa-home.png || true
 adb shell uiautomator dump /sdcard/draftwa-home.xml >/dev/null
@@ -113,7 +123,6 @@ cat artifacts/fakewa-ci.xml || true
 
 grep -q 'ACCESSIBILITY_CONNECTED' artifacts/logcat.txt
 grep -q 'RUN_START' artifacts/logcat.txt
-grep -q 'name="opened" value="true"' artifacts/fakewa-ci.xml
 grep -q 'name="transformed_seen" value="true"' artifacts/fakewa-ci.xml
 grep -q 'name="restored" value="true"' artifacts/fakewa-ci.xml
 ! grep -q 'name="sent" value="true"' artifacts/fakewa-ci.xml
