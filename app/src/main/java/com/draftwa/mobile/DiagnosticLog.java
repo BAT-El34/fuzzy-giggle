@@ -49,6 +49,27 @@ final class DiagnosticLog {
         }
     }
 
+    /**
+     * User-shareable diagnostic view. Details are intentionally removed because
+     * some internal events can contain a conversation fingerprint or UI text.
+     */
+    static synchronized String safeSummary(Context c) {
+        String raw = read(c);
+        if (raw.startsWith("Aucun diagnostic") || raw.startsWith("Lecture des diagnostics impossible")) return raw;
+        String[] lines = raw.split("\\r?\\n");
+        StringBuilder out = new StringBuilder();
+        int start = Math.max(0, lines.length - 120);
+        for (int i = start; i < lines.length; i++) {
+            String line = lines[i];
+            if (line == null || line.trim().isEmpty()) continue;
+            String[] parts = line.split(" \\| ", 3);
+            if (parts.length >= 2) {
+                out.append(parts[0]).append(" | ").append(parts[1]).append('\n');
+            }
+        }
+        return out.length() == 0 ? "Aucun diagnostic exploitable." : out.toString();
+    }
+
     static synchronized void clear(Context c) {
         File d = dir(c);
         new File(d, "draftwa.log").delete();
