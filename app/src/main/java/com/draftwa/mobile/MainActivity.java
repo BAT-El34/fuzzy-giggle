@@ -1,5 +1,6 @@
 package com.draftwa.mobile;
 
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -11,6 +12,7 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.accessibility.AccessibilityManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -19,6 +21,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -151,6 +154,7 @@ public class MainActivity extends Activity {
     private void startAutomation() {
         if (!saveSettings()) return;
         if (!isAccessibilityEnabled()) {
+            DiagnosticLog.event(this, "ACCESSIBILITY_NOT_ENABLED_UI", "");
             Toast.makeText(this, "Active d’abord DraftWA dans Accessibilité", Toast.LENGTH_LONG).show();
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             return;
@@ -251,10 +255,32 @@ public class MainActivity extends Activity {
     }
 
     private boolean isAccessibilityEnabled() {
+        String packageName = getPackageName();
+        String serviceClass = DraftAccessibilityService.class.getName();
+        try {
+            AccessibilityManager manager = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (manager != null && manager.isEnabled()) {
+                List<AccessibilityServiceInfo> services = manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+                if (services != null) {
+                    for (AccessibilityServiceInfo info : services) {
+                        if (info == null || info.getId() == null) continue;
+                        String id = info.getId().toLowerCase(Locale.ROOT);
+                        if (id.equals((packageName + "/" + serviceClass).toLowerCase(Locale.ROOT))
+                                || id.startsWith(packageName.toLowerCase(Locale.ROOT) + "/")) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            DiagnosticLog.event(this, "ACCESSIBILITY_MANAGER_CHECK_FAILED", t.getClass().getSimpleName());
+        }
+
         String enabled = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         if (enabled == null) return false;
-        String needle = getPackageName().toLowerCase(Locale.ROOT) + "/" + DraftAccessibilityService.class.getName().toLowerCase(Locale.ROOT);
-        return enabled.toLowerCase(Locale.ROOT).contains(needle) || enabled.toLowerCase(Locale.ROOT).contains(getPackageName().toLowerCase(Locale.ROOT));
+        String lower = enabled.toLowerCase(Locale.ROOT);
+        String needle = (packageName + "/" + serviceClass).toLowerCase(Locale.ROOT);
+        return lower.contains(needle) || lower.contains(packageName.toLowerCase(Locale.ROOT));
     }
 
     private int num(EditText e, int min) {
