@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - preproduction
+      - draftwa-testbed
     paths:
       - ci/trigger.txt
       - .github/workflows/android-smoke.yml
