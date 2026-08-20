@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   distributed-startup:
@@ -25,6 +26,20 @@ jobs:
     steps:
       - name: Checkout preproduction
         uses: actions/checkout@v4
+
+      - name: Publish pending status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_LEVEL: ${{ matrix.api-level }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl --retry 3 --fail-with-body \
+            -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"pending\",\"target_url\":\"${RUN_URL}\",\"description\":\"Exact distributed APK startup on Android API ${API_LEVEL}\",\"context\":\"draftwa/distributed-api-${API_LEVEL}\"}"
 
       - name: Enable KVM access
         run: |
@@ -52,6 +67,29 @@ jobs:
           path: artifacts/distributed-api-${{ matrix.api-level }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Publish final status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_LEVEL: ${{ matrix.api-level }}
+          OUTCOME: ${{ steps.launch.outcome }}
+        run: |
+          if [[ "$OUTCOME" == "success" ]]; then
+            STATE="success"
+            DESCRIPTION="Distributed APK starts on Android API ${API_LEVEL}"
+          else
+            STATE="failure"
+            DESCRIPTION="Distributed APK startup fails on Android API ${API_LEVEL}"
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl --retry 3 --fail-with-body \
+            -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"${STATE}\",\"target_url\":\"${RUN_URL}\",\"description\":\"${DESCRIPTION}\",\"context\":\"draftwa/distributed-api-${API_LEVEL}\"}"
 
       - name: Fail when startup test failed
         if: always() && steps.launch.outcome != 'success'
