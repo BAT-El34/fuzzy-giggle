@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+def updateManifestUrl = providers.gradleProperty('DRAFTWA_UPDATE_MANIFEST_URL')
+        .orElse('https://draftwa-mobile-five.vercel.app/latest.json')
+        .get()
+def releaseVersionCode = providers.gradleProperty('DRAFTWA_VERSION_CODE').orElse('700').get().toInteger()
+def releaseVersionName = providers.gradleProperty('DRAFTWA_VERSION_NAME').orElse('0.7.0').get()
+
+android {
+    namespace 'com.draftwa.mobile'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.draftwa.mobile'
+        minSdk 26
+        targetSdk 35
+        versionCode releaseVersionCode
+        versionName releaseVersionName
+        buildConfigField 'String', 'UPDATE_MANIFEST_URL', '"' + updateManifestUrl + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
