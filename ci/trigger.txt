@@ -1,1 +1,1 @@
-DraftWA startup smoke test — DEX outs_size + invoke-35c fix — 2026-08-19 run 3
+DraftWA 0.7.0 Gradle UI + strict diagnostic integration — 2026-08-20 run 1
