@@ -1,1 +1,1 @@
-DraftWA 0.7.0 Gradle UI + strict diagnostic integration — 2026-08-20 testbed run 1
+DraftWA 0.7.0 Gradle UI + strict diagnostic integration — 2026-08-20 run 1
