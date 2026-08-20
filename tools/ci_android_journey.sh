@@ -10,11 +10,22 @@ SERVICE="com.draftwa.mobile/com.draftwa.mobile.DraftAccessibilityService"
 adb install -r "$FAKEWA"
 adb install -r "$DRAFTWA"
 
+# Android 13+ protects accessibility for sideloaded/debug APKs behind
+# "Restricted settings". In CI the shell performs the equivalent test-device
+# authorization; production still requires normal user approval on-device.
+if [ "$API_LEVEL" -ge 33 ]; then
+  adb shell cmd appops set com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS allow
+fi
+
 adb shell settings put secure enabled_accessibility_services "$SERVICE"
 adb shell settings put secure accessibility_enabled 1
 ENABLED_SERVICES="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
 ACCESSIBILITY_ENABLED="$(adb shell settings get secure accessibility_enabled | tr -d '\r')"
-printf 'enabled_accessibility_services=%s\naccessibility_enabled=%s\n' "$ENABLED_SERVICES" "$ACCESSIBILITY_ENABLED" > artifacts/accessibility-settings.txt
+APP_OP="not-applicable"
+if [ "$API_LEVEL" -ge 33 ]; then
+  APP_OP="$(adb shell cmd appops get com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS 2>&1 | tr -d '\r')"
+fi
+printf 'enabled_accessibility_services=%s\naccessibility_enabled=%s\nrestricted_settings=%s\n' "$ENABLED_SERVICES" "$ACCESSIBILITY_ENABLED" "$APP_OP" > artifacts/accessibility-settings.txt
 [[ "$ENABLED_SERVICES" == *"com.draftwa.mobile"* ]]
 [[ "$ACCESSIBILITY_ENABLED" == "1" ]]
 
@@ -41,7 +52,6 @@ for n in root.iter('node'):
         if not m:
             continue
         x1,y1,x2,y2=map(int,m.groups())
-        # Refuse a button that is merely clipped into the bottom navigation area.
         visible_h=max(0, min(y2, 2320)-max(y1, 80))
         if visible_h < 60 or y1 >= 2300:
             continue
