@@ -26,6 +26,7 @@ final class Prefs {
     static final String X_MIN = "x_min";
     static final String X_MAX = "x_max";
     static final String RUNNING = "running";
+    static final String PAUSED = "paused";
     static final String DIAGNOSTIC = "diagnostic";
     static final String AUTO_UPDATE = "auto_update";
     static final String AUTO_DOWNLOAD = "auto_download";
@@ -39,6 +40,9 @@ final class Prefs {
     static final String FILTER_MENU_PROBED = "filter_menu_probed";
     static final String ALL_FILTER_PROBED = "all_filter_probed";
     static final String SCROLL_COUNT = "scroll_count";
+    static final String SCAN_PAGE = "scan_page";
+    static final String LAST_VIEWPORT = "last_viewport";
+    static final String SAME_VIEWPORT_COUNT = "same_viewport_count";
     static final String SKIPPED = "skipped";
     static final String LEGACY_MIGRATED = "legacy_migrated";
 
@@ -67,6 +71,7 @@ final class Prefs {
         if (!sp.contains(AUTO_UPDATE)) e.putBoolean(AUTO_UPDATE, true);
         if (!sp.contains(AUTO_DOWNLOAD)) e.putBoolean(AUTO_DOWNLOAD, true);
         if (!sp.contains(RUNNING)) e.putBoolean(RUNNING, false);
+        if (!sp.contains(PAUSED)) e.putBoolean(PAUSED, false);
         if (!sp.contains(STATUS)) e.putString(STATUS, "Prêt");
         e.apply();
     }
@@ -92,6 +97,7 @@ final class Prefs {
             putIntIfPresent(e, current, X_MAX, all, "draft_xmax_raw", "draft_xmax");
             e.putString(STATUS, "Configuration 0.6.x migrée • diagnostic activé");
             e.putBoolean(RUNNING, false);
+            e.putBoolean(PAUSED, false);
             e.putBoolean(DIAGNOSTIC, true);
             DiagnosticLog.event(c, "LEGACY_PREFS_MIGRATED", "draftwa_mobile");
         }
@@ -135,6 +141,9 @@ final class Prefs {
                 .putBoolean(FILTER_MENU_PROBED, false)
                 .putBoolean(ALL_FILTER_PROBED, false)
                 .putInt(SCROLL_COUNT, 0)
+                .putInt(SCAN_PAGE, 1)
+                .putString(LAST_VIEWPORT, "")
+                .putInt(SAME_VIEWPORT_COUNT, 0)
                 .putInt(SENT_IN_BATCH, 0)
                 .putInt(BATCH_TARGET, 0)
                 .putLong(NEXT_ACTION_AT, 0L)
