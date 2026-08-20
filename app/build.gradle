@@ -5,8 +5,8 @@ plugins {
 def updateManifestUrl = providers.gradleProperty('DRAFTWA_UPDATE_MANIFEST_URL')
         .orElse('https://draftwa-mobile-five.vercel.app/latest.json')
         .get()
-def releaseVersionCode = providers.gradleProperty('DRAFTWA_VERSION_CODE').orElse('700').get().toInteger()
-def releaseVersionName = providers.gradleProperty('DRAFTWA_VERSION_NAME').orElse('0.7.0').get()
+def releaseVersionCode = providers.gradleProperty('DRAFTWA_VERSION_CODE').orElse('701').get().toInteger()
+def releaseVersionName = providers.gradleProperty('DRAFTWA_VERSION_NAME').orElse('0.7.1').get()
 
 android {
     namespace 'com.draftwa.mobile'
