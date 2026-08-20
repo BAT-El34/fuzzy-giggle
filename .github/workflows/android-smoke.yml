@@ -1,11 +1,12 @@
-name: DraftWA Android smoke test
+name: DraftWA 0.7.0 preproduction Android test
 
 on:
   push:
     branches:
-      - draftwa-testbed
+      - preproduction
     paths:
       - ci/trigger.txt
+      - .github/workflows/android-smoke.yml
   workflow_dispatch:
 
 permissions:
@@ -13,18 +14,41 @@ permissions:
   statuses: write
 
 jobs:
-  smoke-test:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Pure logic and static safety gates
+        run: |
+          python3 tools/static_review.py
+          python3 tools/engine_model_test.py
+          mkdir -p build/rules
+          javac -d build/rules app/src/main/java/com/draftwa/mobile/MessageRules.java tools/RuleSimulation.java
+          java -cp build/rules com.draftwa.mobile.RuleSimulation
+
+  android-test:
+    needs: preflight
     name: Android API ${{ matrix.api-level }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         api-level: [30, 34, 35]
 
     steps:
-      - name: Checkout testbed
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
       - name: Publish pending status
         env:
@@ -32,64 +56,74 @@ jobs:
           API_LEVEL: ${{ matrix.api-level }}
         run: |
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl --retry 3 --fail-with-body \
-            -X POST \
+          curl --retry 3 --fail-with-body -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d "{\"state\":\"pending\",\"target_url\":\"${RUN_URL}\",\"description\":\"Android API ${API_LEVEL} smoke test running\",\"context\":\"draftwa/android-${API_LEVEL}\"}"
+            -d "{\"state\":\"pending\",\"target_url\":\"${RUN_URL}\",\"description\":\"DraftWA 0.7.0 diagnostic on API ${API_LEVEL}\",\"context\":\"draftwa/0.7.0-api-${API_LEVEL}\"}"
 
-      - name: Enable KVM access
+      - name: Build real Gradle APKs
+        id: build
+        continue-on-error: true
+        run: gradle --no-daemon :app:assembleDebug :fakewa:assembleDebug
+
+      - name: Enable KVM
+        if: steps.build.outcome == 'success'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Boot Android emulator and smoke-test DraftWA
-        id: smoke
+      - name: Run full diagnostic journey
+        id: journey
+        if: steps.build.outcome == 'success'
         continue-on-error: true
-        uses: ReactiveCircus/android-emulator-runner@v2.38.0
+        uses: ReactiveCircus/android-emulator-runner@v2.34.0
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
+          profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: API_LEVEL=${{ matrix.api-level }} bash scripts/smoke_test.sh
+          script: API_LEVEL=${{ matrix.api-level }} bash scripts/integration_test_070.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draftwa-070-api-${{ matrix.api-level }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            fakewa/build/outputs/apk/debug/fakewa-debug.apk
+            artifacts/**
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Publish final status
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_LEVEL: ${{ matrix.api-level }}
-          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          JOURNEY_OUTCOME: ${{ steps.journey.outcome }}
         run: |
-          if [[ "$SMOKE_OUTCOME" == "success" ]]; then
-            STATE="success"
-            DESCRIPTION="Android API ${API_LEVEL}: DraftWA startup PASS"
+          if [[ "$BUILD_OUTCOME" == "success" && "$JOURNEY_OUTCOME" == "success" ]]; then
+            STATE=success
+            DESCRIPTION="DraftWA 0.7.0 API ${API_LEVEL}: build + diagnostic PASS"
           else
-            STATE="failure"
-            DESCRIPTION="Android API ${API_LEVEL}: DraftWA startup FAIL"
+            STATE=failure
+            DESCRIPTION="DraftWA 0.7.0 API ${API_LEVEL}: build/diagnostic FAIL"
           fi
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl --retry 3 --fail-with-body \
-            -X POST \
+          curl --retry 3 --fail-with-body -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d "{\"state\":\"${STATE}\",\"target_url\":\"${RUN_URL}\",\"description\":\"${DESCRIPTION}\",\"context\":\"draftwa/android-${API_LEVEL}\"}"
+            -d "{\"state\":\"${STATE}\",\"target_url\":\"${RUN_URL}\",\"description\":\"${DESCRIPTION}\",\"context\":\"draftwa/0.7.0-api-${API_LEVEL}\"}"
 
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: draftwa-diagnostics-api-${{ matrix.api-level }}
-          path: artifacts/api-${{ matrix.api-level }}
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Fail job when smoke test failed
-        if: always() && steps.smoke.outcome != 'success'
+      - name: Fail failed matrix job
+        if: always() && (steps.build.outcome != 'success' || steps.journey.outcome != 'success')
         run: exit 1
