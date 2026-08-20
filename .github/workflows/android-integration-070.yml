@@ -137,9 +137,25 @@ jobs:
           java -cp build/rules com.draftwa.mobile.RuleSimulation
       - name: Build exact unsigned release candidate
         run: gradle --no-daemon :app:assembleRelease
+      - name: Package Android release signing toolchain
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "${BUILD_TOOLS}/apksigner"
+          test -x "${BUILD_TOOLS}/zipalign"
+          test -f "${BUILD_TOOLS}/lib/apksigner.jar"
+          mkdir -p release-tools/lib release-tools/lib64
+          cp "${BUILD_TOOLS}/apksigner" release-tools/
+          cp "${BUILD_TOOLS}/zipalign" release-tools/
+          cp "${BUILD_TOOLS}/lib/apksigner.jar" release-tools/lib/
+          if [ -d "${BUILD_TOOLS}/lib64" ]; then cp -a "${BUILD_TOOLS}/lib64/." release-tools/lib64/; fi
+          chmod +x release-tools/apksigner release-tools/zipalign
+          printf '%s\n' "${BUILD_TOOLS}" > release-tools/source.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DraftWA-unsigned-release-candidate
-          path: app/build/outputs/apk/release/*.apk
+          path: |
+            app/build/outputs/apk/release/*.apk
+            release-tools/**
           if-no-files-found: error
           retention-days: 7
