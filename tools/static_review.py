@@ -12,6 +12,8 @@ prefs=(ROOT/'app/src/main/java/com/draftwa/mobile/Prefs.java').read_text()
 config=(ROOT/'app/src/main/res/xml/accessibility_service_config.xml').read_text()
 check('INTERNET permission', 'android.permission.INTERNET' in manifest)
 check('REQUEST_INSTALL_PACKAGES permission', 'android.permission.REQUEST_INSTALL_PACKAGES' in manifest)
+check('Accessibility service bind permission', 'android.permission.BIND_ACCESSIBILITY_SERVICE' in manifest)
+check('Accessibility service exported for system binding', 'android:name=".DraftAccessibilityService"' in manifest and 'android:exported="true"' in manifest)
 check('Accessibility reports view IDs', 'flagReportViewIds' in config)
 for i in ['draft_indicator','conversation_list','entry','send']:
     check('WhatsApp ID '+i, '"'+i+'"' in service)
