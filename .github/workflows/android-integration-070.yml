@@ -12,6 +12,16 @@ on:
       - '*.gradle'
       - 'settings.gradle'
       - '.github/workflows/android-integration-070.yml'
+  pull_request:
+    branches:
+      - draftwa-testbed
+    paths:
+      - 'app/**'
+      - 'fakewa/**'
+      - 'tools/**'
+      - '*.gradle'
+      - 'settings.gradle'
+      - '.github/workflows/android-integration-070.yml'
 
 permissions:
   contents: read
