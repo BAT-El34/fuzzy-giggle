@@ -40,6 +40,14 @@ PY
   sleep 1
 }
 
+# API 35's AOSP Quickstep launcher can enter an ANR loop on hosted runners and
+# repeatedly cover the app under test. Suppress system error dialogs only inside
+# this ephemeral emulator. DraftWA crashes/ANRs remain independently fatal below
+# through explicit logcat checks, so this does not weaken the application gate.
+if [ "$API_LEVEL" -ge 35 ]; then
+  adb shell settings put global hide_error_dialogs 1 || true
+fi
+
 adb install -r "$FAKEWA"
 if [ "$API_LEVEL" -ge 35 ]; then
   # Android 15 ECM deliberately restricts accessibility for local/sideload sources.
@@ -146,9 +154,11 @@ done
 
 test "$FOUND" = "1"
 sleep 2
+dismiss_quickstep_anr
 adb shell uiautomator dump /sdcard/after-start.xml >/dev/null || true
 adb pull /sdcard/after-start.xml artifacts/after-start.xml >/dev/null || true
 sleep 28
+dismiss_quickstep_anr
 
 adb exec-out screencap -p > artifacts/final.png || true
 adb shell uiautomator dump /sdcard/final.xml >/dev/null || true
@@ -178,5 +188,9 @@ if grep -A30 'FATAL EXCEPTION' artifacts/logcat.txt | grep -q 'com.draftwa.mobil
   echo 'DraftWA crashed'
   exit 1
 fi
+if grep -E -q 'ANR in com\.draftwa\.mobile|Application Not Responding: com\.draftwa\.mobile' artifacts/logcat.txt; then
+  echo 'DraftWA ANR detected'
+  exit 1
+fi
 
-printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nRESTORE=PASS\nNO_FATAL=PASS\n' "$API_LEVEL" > artifacts/result.txt
+printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\n' "$API_LEVEL" > artifacts/result.txt
