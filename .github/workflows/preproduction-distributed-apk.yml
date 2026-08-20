@@ -1,0 +1,58 @@
+name: DraftWA preproduction distributed APK startup
+
+on:
+  push:
+    branches:
+      - preproduction
+    paths:
+      - .github/workflows/preproduction-distributed-apk.yml
+      - scripts/test_distributed_apk.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distributed-startup:
+    name: Current distributed APK / Android API ${{ matrix.api-level }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34, 35]
+
+    steps:
+      - name: Checkout preproduction
+        uses: actions/checkout@v4
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot emulator and launch exact distributed APK
+        id: launch
+        continue-on-error: true
+        uses: ReactiveCircus/android-emulator-runner@v2.34.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: API_LEVEL=${{ matrix.api-level }} bash scripts/test_distributed_apk.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draftwa-distributed-api-${{ matrix.api-level }}
+          path: artifacts/distributed-api-${{ matrix.api-level }}
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail when startup test failed
+        if: always() && steps.launch.outcome != 'success'
+        run: exit 1
