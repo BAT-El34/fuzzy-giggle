@@ -48,7 +48,8 @@ check('Auto update default true', 'AUTO_UPDATE)) e.putBoolean(AUTO_UPDATE, true)
 check('Auto download default true', 'AUTO_DOWNLOAD)) e.putBoolean(AUTO_DOWNLOAD, true)' in prefs)
 check('Guided diagnostic resumes after accessibility', 'PENDING_DIAGNOSTIC_START' in prefs and 'GUIDED_DIAGNOSTIC_RESUME' in main)
 check('Missing WhatsApp blocks run', 'refuseMissingWhatsApp' in main and 'WA_BUSINESS_MISSING' in main and main.find('isWhatsAppBusinessInstalled()') < main.find('Prefs.resetRunState(this)'))
-check('Safe diagnostic strips event details', 'safeSummary' in diag and 'split(" \\| ", 3)' in diag and 'Événements (détails masqués)' in main)
+safe_block = diag[diag.find('static synchronized String safeSummary'):diag.find('static synchronized void clear')]
+check('Safe diagnostic strips event details', 'safeSummary' in safe_block and 'parts.length >= 2' in safe_block and 'append(parts[1])' in safe_block and 'parts[2]' not in safe_block and 'Événements (détails masqués)' in main)
 check('UI version comes from BuildConfig', '"v" + BuildConfig.VERSION_NAME' in main)
 check('Release version is 0.7.1', "orElse('701')" in build and "orElse('0.7.1')" in build)
 failed=[n for n,v in checks if not v]
