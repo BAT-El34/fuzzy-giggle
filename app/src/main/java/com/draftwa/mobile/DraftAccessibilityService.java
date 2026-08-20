@@ -194,6 +194,25 @@ public class DraftAccessibilityService extends AccessibilityService {
         if (list == null) list = findBestScrollable(root);
         int scrolls = sp.getInt(Prefs.SCROLL_COUNT, 0);
         DiagnosticLog.event(this, "DRAFT_SCAN_PAGE", String.valueOf(scrolls + 1));
+
+        if (list != null) {
+            String viewport = viewportSignature(list);
+            String previous = sp.getString(Prefs.LAST_VIEWPORT, "");
+            int same = viewport.equals(previous) && !viewport.isEmpty()
+                    ? sp.getInt(Prefs.SAME_VIEWPORT_COUNT, 0) + 1
+                    : 0;
+            Prefs.p(this).edit()
+                    .putString(Prefs.LAST_VIEWPORT, viewport)
+                    .putInt(Prefs.SAME_VIEWPORT_COUNT, same)
+                    .apply();
+            if (same >= 2) {
+                Prefs.p(this).edit().putBoolean(Prefs.RUNNING, false)
+                        .putString(Prefs.STATUS, "Fin de liste détectée").apply();
+                DiagnosticLog.event(this, "DRAFT_SCAN_STOP_SAME_VIEWPORT", "scrolls=" + scrolls);
+                return;
+            }
+        }
+
         if (list != null && scrolls < MAX_SCROLLS) {
             boolean moved = list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
             if (moved) {
@@ -571,6 +590,16 @@ public class DraftAccessibilityService extends AccessibilityService {
         if (n == null) return "";
         CharSequence t = n.getText();
         return t == null ? "" : t.toString();
+    }
+
+    private String viewportSignature(AccessibilityNodeInfo list) {
+        if (list == null) return "";
+        StringBuilder b = new StringBuilder();
+        collectText(list, b, 0, 4);
+        Rect r = new Rect();
+        list.getBoundsInScreen(r);
+        return Integer.toHexString((b.toString() + "@" + r.left + "," + r.top + "," + r.right + "," + r.bottom)
+                .toLowerCase(Locale.ROOT).hashCode());
     }
 
     private String fingerprint(AccessibilityNodeInfo row) {
