@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">DraftWA Mobile</string>
+    <string name="accessibility_service_description">Automatisation locale des brouillons WhatsApp Business configurée par l’utilisateur.</string>
+</resources>
