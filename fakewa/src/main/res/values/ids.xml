@@ -1,0 +1,7 @@
+<resources>
+    <item name="conversation_list" type="id"/>
+    <item name="draft_indicator" type="id"/>
+    <item name="entry" type="id"/>
+    <item name="send" type="id"/>
+    <item name="test_state" type="id"/>
+</resources>
