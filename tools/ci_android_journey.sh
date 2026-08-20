@@ -7,6 +7,39 @@ DRAFTWA="app/build/outputs/apk/debug/app-debug.apk"
 FAKEWA="fakewa/build/outputs/apk/debug/fakewa-debug.apk"
 SERVICE="com.draftwa.mobile/com.draftwa.mobile.DraftAccessibilityService"
 
+# Android 15 emulator images can occasionally surface a launcher-only ANR
+# ("Quickstep isn't responding") during cold boot. It is unrelated to DraftWA
+# but overlays the whole UI. Dismiss only that exact system-launcher dialog;
+# never dismiss an ANR belonging to DraftWA itself.
+dismiss_quickstep_anr() {
+  adb shell uiautomator dump /sdcard/system-overlay.xml >/dev/null 2>&1 || return 0
+  adb pull /sdcard/system-overlay.xml artifacts/system-overlay.xml >/dev/null 2>&1 || return 0
+  python3 - <<'PY' || true
+import re, subprocess, xml.etree.ElementTree as ET
+try:
+    root=ET.parse('artifacts/system-overlay.xml').getroot()
+except Exception:
+    raise SystemExit(0)
+quickstep=False
+wait=None
+for n in root.iter('node'):
+    text=n.attrib.get('text','')
+    if text == "Quickstep isn't responding":
+        quickstep=True
+    if text == 'Wait' and n.attrib.get('package') == 'android':
+        wait=n
+if not quickstep or wait is None:
+    raise SystemExit(0)
+m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', wait.attrib.get('bounds',''))
+if not m:
+    raise SystemExit(0)
+x1,y1,x2,y2=map(int,m.groups())
+subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+print('Dismissed emulator Quickstep ANR overlay')
+PY
+  sleep 1
+}
+
 adb install -r "$FAKEWA"
 if [ "$API_LEVEL" -ge 35 ]; then
   # Android 15 ECM deliberately restricts accessibility for local/sideload sources.
@@ -25,6 +58,7 @@ adb shell am force-stop com.draftwa.mobile
 adb logcat -c
 adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-start.txt
 sleep 1
+dismiss_quickstep_anr
 
 # Android 13/14 Restricted Settings can be pre-authorized for a test device by
 # this AppOp. Android 15 is handled above through PackageInstaller source=store.
@@ -72,6 +106,7 @@ fi
 # status after binding so the UI sees the service as enabled.
 adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-refresh.txt
 sleep 3
+dismiss_quickstep_anr
 
 adb exec-out screencap -p > artifacts/draftwa-home.png || true
 adb shell uiautomator dump /sdcard/draftwa-home.xml >/dev/null
@@ -79,6 +114,7 @@ adb pull /sdcard/draftwa-home.xml artifacts/draftwa-home.xml >/dev/null
 
 FOUND=0
 for ATTEMPT in 1 2 3 4 5 6 7 8; do
+  dismiss_quickstep_anr
   adb shell uiautomator dump /sdcard/draftwa.xml >/dev/null
   adb pull /sdcard/draftwa.xml artifacts/draftwa.xml >/dev/null
   if python3 - <<'PY'
