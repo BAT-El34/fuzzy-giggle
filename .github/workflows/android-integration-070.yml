@@ -14,7 +14,7 @@ on:
       - '.github/workflows/android-integration-070.yml'
   pull_request:
     branches:
-      - draftwa-0.7.0
+      - draftwa-testbed
     paths:
       - 'app/**'
       - 'fakewa/**'
