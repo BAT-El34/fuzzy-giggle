@@ -82,6 +82,21 @@ public class MainActivity extends Activity {
         statusLp.setMargins(0, dp(16), 0, dp(12));
         root.addView(status, statusLp);
 
+        TextView quickHelp = text("Démarrage rapide : active l’accessibilité une seule fois, puis lance un test sécurisé sans envoi.", 13, false);
+        quickHelp.setTextColor(Color.rgb(84, 101, 111));
+        root.addView(quickHelp, lpMatch());
+
+        LinearLayout quickActions = horizontal(root);
+        Button quickDiagnostic = button("Tester en diagnostic");
+        quickDiagnostic.setOnClickListener(v -> {
+            diagnostic.setChecked(true);
+            startAutomation();
+        });
+        quickActions.addView(quickDiagnostic, weighted());
+        Button quickAccessibility = button("Activer l’accessibilité");
+        quickAccessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        quickActions.addView(quickAccessibility, weighted());
+
         section(root, "1. Règles des brouillons");
         condition = field(root, "Texte de confirmation", "Ex. Soko ou Soko ; Allo.", false);
         remove = field(root, "Retraitement / suppression", "Ex. ,Enregistré,", false);
@@ -250,8 +265,12 @@ public class MainActivity extends Activity {
     private void refreshStatus() {
         boolean running = Prefs.p(this).getBoolean(Prefs.RUNNING, false);
         String s = Prefs.p(this).getString(Prefs.STATUS, running ? "En cours" : "Prêt");
+        boolean accessibilityEnabled = isAccessibilityEnabled();
         status.setText((running ? "● EN COURS" : "● ARRÊTÉ") + "  •  " + s
-                + "\nAccessibilité : " + (isAccessibilityEnabled() ? "activée" : "à activer"));
+                + "\nAccessibilité : " + (accessibilityEnabled ? "activée" : "à activer"));
+        status.setBackgroundColor(accessibilityEnabled
+                ? Color.rgb(226, 244, 239)
+                : Color.rgb(255, 247, 214));
     }
 
     private boolean isAccessibilityEnabled() {
