@@ -8,29 +8,58 @@ FAKEWA="fakewa/build/outputs/apk/debug/fakewa-debug.apk"
 SERVICE="com.draftwa.mobile/com.draftwa.mobile.DraftAccessibilityService"
 
 adb install -r "$FAKEWA"
-adb install -r "$DRAFTWA"
+if [ "$API_LEVEL" -ge 35 ]; then
+  # Android 15 ECM deliberately restricts accessibility for local/sideload sources.
+  # CI installs as a store-source test fixture so accessibility mechanics can be
+  # exercised non-interactively. Production APKs do not receive this treatment.
+  adb push "$DRAFTWA" /data/local/tmp/draftwa-ci.apk >/dev/null
+  adb shell pm install -r --package-source 2 /data/local/tmp/draftwa-ci.apk
+else
+  adb install -r "$DRAFTWA"
+fi
 
-# Android 13+ protects accessibility for sideloaded/debug APKs behind
-# "Restricted settings". In CI the shell performs the equivalent test-device
-# authorization; production still requires normal user approval on-device.
-if [ "$API_LEVEL" -ge 33 ]; then
+# Force-stop BEFORE enabling accessibility. Force-stopping after the setting is
+# enabled kills the service process and can leave the test app in stopped state.
+adb shell am force-stop com.draftwa.mobile
+adb logcat -c
+
+# Android 13/14 Restricted Settings can be pre-authorized for a test device by
+# this AppOp. Android 15 is handled above through PackageInstaller source=store.
+if [ "$API_LEVEL" -ge 33 ] && [ "$API_LEVEL" -lt 35 ]; then
   adb shell cmd appops set com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS allow
 fi
 
 adb shell settings put secure enabled_accessibility_services "$SERVICE"
 adb shell settings put secure accessibility_enabled 1
+sleep 1
+
 ENABLED_SERVICES="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
 ACCESSIBILITY_ENABLED="$(adb shell settings get secure accessibility_enabled | tr -d '\r')"
 APP_OP="not-applicable"
-if [ "$API_LEVEL" -ge 33 ]; then
+if [ "$API_LEVEL" -ge 33 ] && [ "$API_LEVEL" -lt 35 ]; then
   APP_OP="$(adb shell cmd appops get com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS 2>&1 | tr -d '\r')"
 fi
 printf 'enabled_accessibility_services=%s\naccessibility_enabled=%s\nrestricted_settings=%s\n' "$ENABLED_SERVICES" "$ACCESSIBILITY_ENABLED" "$APP_OP" > artifacts/accessibility-settings.txt
 [[ "$ENABLED_SERVICES" == *"com.draftwa.mobile"* ]]
 [[ "$ACCESSIBILITY_ENABLED" == "1" ]]
 
-adb shell am force-stop com.draftwa.mobile
-adb logcat -c
+# Require the system to actually bind the service, not merely persist the setting.
+CONNECTED=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if adb logcat -d -s DraftWA:I '*:S' | grep -q 'ACCESSIBILITY_CONNECTED'; then
+    CONNECTED=1
+    break
+  fi
+  sleep 1
+done
+if [ "$CONNECTED" != "1" ]; then
+  adb shell dumpsys accessibility > artifacts/dumpsys-accessibility.txt || true
+  adb shell dumpsys package com.draftwa.mobile > artifacts/dumpsys-package.txt || true
+  adb logcat -d -v threadtime > artifacts/prelaunch-logcat.txt || true
+  echo 'Accessibility service did not bind'
+  exit 1
+fi
+
 adb shell monkey -p com.draftwa.mobile -c android.intent.category.LAUNCHER 1
 sleep 4
 
