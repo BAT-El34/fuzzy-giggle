@@ -90,7 +90,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
           script: |
-            set -euxo pipefail
+            set -eu
             mkdir -p artifacts
             DRAFTWA=app/build/outputs/apk/debug/app-debug.apk
             FAKEWA=fakewa/build/outputs/apk/debug/fakewa-debug.apk
