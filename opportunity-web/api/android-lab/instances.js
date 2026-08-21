@@ -9,8 +9,8 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const payload = await geny('/v1/instances', {}, req);
-      const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.instances) ? payload.instances : []);
+      const payload = await geny('/v2/instances?ordering=-created_at&page_size=100', {}, req);
+      const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.results) ? payload.results : []);
       return json(res,200,{ok:true,authMode:auth.mode,instances:list.map(normalizeInstance)});
     } catch(e) { return json(res,502,{ok:false,error:e.message}); }
   }
@@ -24,7 +24,7 @@ module.exports = async function handler(req, res) {
       const inactivitySeconds = Math.min(Math.max(Number(input.inactivitySeconds)||1800,300),globalSeconds);
       const payload = await geny(`/v1/recipes/${recipeUuid}/start-disposable`,{
         method:'POST',
-        body:{instance_name:rawName||`DraftWA-Lab-${Date.now()}`,rename_on_conflict:true,stop_when_inactive:true,automatic_release:{type:'none'},timeouts:{global:globalSeconds,inactivity:inactivitySeconds}},
+        body:{instance_name:rawName||`DraftWA-Lab-${Date.now()}`,rename_on_conflict:true,timeouts:{global:globalSeconds,inactivity:inactivitySeconds}},
         timeoutMs:30000
       },req);
       return json(res,201,{ok:true,authMode:auth.mode,instance:normalizeInstance(payload)});
