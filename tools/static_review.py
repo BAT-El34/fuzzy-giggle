@@ -37,6 +37,9 @@ check('Scan page logging', 'DRAFT_SCAN_PAGE' in service)
 check('Diagnostic transform is restored', 'DIAG_TRANSFORM' in service and 'DIAG_RESTORE' in service and 'RESTORED_OK' in service)
 check('Diagnostic temporary set text is verified', 'TRANSFORM_PASS' in service and 'DIAGNOSTIC_RESTORE_VERIFY' in service and 'SET_TEXT_VERIFY_FAILED' in service)
 check('Diagnostic does not delete rejected drafts', 'DIAGNOSTIC_DELETE_SKIPPED' in service and service.find('if (diagnostic)') < service.find('if ("Détruire".equalsIgnoreCase(reject))'))
+check('Return-to-list recovery exists', 'RETURN_TO_LIST_BEGIN' in service and 'RETURN_TO_LIST_CONFIRMED' in service and 'RETURN_TO_LIST_BACK' in service)
+check('Start-inside-chat is normalized', 'START_CONTEXT_CHAT' in service and 'currentFingerprint.isEmpty()' in service)
+check('Post-send pause waits for navigation recovery', 'returningToList' in service and service.find('if (returningToList)') < service.find('long next = sp.getLong(Prefs.NEXT_ACTION_AT'))
 check('SHA validation', 'SHA-256 invalide' in update)
 check('Package validation', 'Package inattendu' in update)
 check('Signature validation', 'Signature release différente' in update)
@@ -56,7 +59,7 @@ check('Missing WhatsApp blocks run', 'refuseMissingWhatsApp' in main and 'WA_BUS
 safe_block = diag[diag.find('static synchronized String safeSummary'):diag.find('static synchronized void clear')]
 check('Safe diagnostic strips event details', 'safeSummary' in safe_block and 'parts.length >= 2' in safe_block and 'append(parts[1])' in safe_block and 'parts[2]' not in safe_block and 'Événements (détails masqués)' in main)
 check('UI version comes from BuildConfig', '"v" + BuildConfig.VERSION_NAME' in main)
-check('Release version is 0.8.0', "orElse('800')" in build and "orElse('0.8.0')" in build)
+check('Release version is 0.8.1', "orElse('801')" in build and "orElse('0.8.1')" in build)
 
 check('Opportunity activity declared', 'android:name=".OpportunityActivity"' in manifest and 'android:exported="false"' in manifest)
 check('Opportunity UI entry exists', 'Ouvrir Carte & Prospection' in main and 'OpportunityActivity.class' in main)
