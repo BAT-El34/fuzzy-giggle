@@ -4,6 +4,12 @@ const lib = require('../lib/opportunity');
 const exp = require('../api/opportunities/export')._test;
 const geny = require('../lib/genymotion');
 
+// Requiring every Android Lab handler gives CI a syntax/load gate without touching the provider.
+for (const p of ['status','recipes','instances','session','stop']) {
+  const handler = require(`../api/android-lab/${p}`);
+  assert.equal(typeof handler, 'function');
+}
+
 function near(actual, expected, tolerance, label){assert(Math.abs(actual-expected)<=tolerance, `${label}: ${actual} vs ${expected}`)}
 
 near(lib.haversineM(0,0,1,0),111195,800,'haversine');
@@ -38,5 +44,9 @@ assert.equal(instance.state,'ONLINE'); assert.equal(instance.arch,'arm64'); asse
 assert.equal(geny.assertUuid('095be615-a8ad-4c33-8e9c-c7612fbf6c9f'),'095be615-a8ad-4c33-8e9c-c7612fbf6c9f');
 assert.throws(()=>geny.assertUuid('not-a-uuid'),/invalide/);
 const flat=geny.flattenRecipeResponse({base:[{uuid:'095be615-a8ad-4c33-8e9c-c7612fbf6c9f'}],custom:[{uuid:'597eb633-0943-4de5-b80a-1b0319522204'}]}); assert.equal(flat.length,2);
+
+const sessionReq={headers:{'x-genymotion-api-token':'abcdefghijklmnopqrstuvwxyz1234567890'}};
+assert.equal(geny.authorize(sessionReq).mode,'session-token');
+assert.equal(geny.resolveToken(sessionReq),'abcdefghijklmnopqrstuvwxyz1234567890');
 
 console.log('PASS opportunity-web + android-lab tests');
