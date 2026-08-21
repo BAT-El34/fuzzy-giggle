@@ -21,6 +21,7 @@ public class DraftAccessibilityService extends AccessibilityService {
     static final String WA_PACKAGE = "com.whatsapp.w4b";
     private static final String ID_PREFIX = WA_PACKAGE + ":id/";
     private static final int MAX_SCROLLS = 18;
+    private static final int MAX_RETURN_BACK_ATTEMPTS = 4;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
@@ -32,6 +33,9 @@ public class DraftAccessibilityService extends AccessibilityService {
     private PendingAction pendingAction = PendingAction.NONE;
     private int setTextRetries = 0;
     private boolean ticking = false;
+    private boolean returningToList = false;
+    private int returnBackAttempts = 0;
+    private String returnReason = "";
 
     private enum PendingAction { NONE, SEND, DELETE, DIAG_TRANSFORM, DIAG_RESTORE }
 
@@ -74,13 +78,6 @@ public class DraftAccessibilityService extends AccessibilityService {
         SharedPreferences sp = Prefs.p(this);
         if (!sp.getBoolean(Prefs.RUNNING, false)) return;
 
-        long now = System.currentTimeMillis();
-        long next = sp.getLong(Prefs.NEXT_ACTION_AT, 0L);
-        if (next > now) {
-            schedule(Math.min(2000, next - now));
-            return;
-        }
-
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) {
             status("Fenêtre Android indisponible", "ROOT_NULL");
@@ -97,6 +94,57 @@ public class DraftAccessibilityService extends AccessibilityService {
         DiagnosticLog.event(this, "WA_PACKAGE_OK", WA_PACKAGE);
 
         AccessibilityNodeInfo editor = firstById(root, "entry");
+
+        // Navigation recovery is intentionally evaluated before NEXT_ACTION_AT.
+        // The pacing delay controls when the next draft may be opened, but it must
+        // never leave DraftWA stranded inside the chat that was just processed.
+        if (returningToList) {
+            if (editor == null) {
+                returningToList = false;
+                returnBackAttempts = 0;
+                returnReason = "";
+                currentFingerprint = "";
+                expectedText = null;
+                originalText = null;
+                pendingAction = PendingAction.NONE;
+                setTextRetries = 0;
+                DiagnosticLog.event(this, "RETURN_TO_LIST_CONFIRMED", "");
+                status("Retour à la liste confirmé", "RETURN_TO_LIST_CONFIRMED");
+                schedule(250);
+                return;
+            }
+
+            if (returnBackAttempts >= MAX_RETURN_BACK_ATTEMPTS) {
+                failSafe("Impossible de revenir à la liste des conversations", "RETURN_TO_LIST_FAILED");
+                return;
+            }
+
+            boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
+            returnBackAttempts++;
+            DiagnosticLog.event(this, "RETURN_TO_LIST_BACK",
+                    "attempt=" + returnBackAttempts + " reason=" + returnReason + " ok=" + backed);
+            schedule(backed ? 450 : 700);
+            return;
+        }
+
+        // If the engine starts while WhatsApp is already sitting in an arbitrary
+        // chat, do not treat that chat as a draft selected by DraftWA. Recenter on
+        // the conversation list first, then resume normal scanning.
+        if (editor != null && pendingAction == PendingAction.NONE && currentFingerprint.isEmpty()) {
+            DiagnosticLog.event(this, "START_CONTEXT_CHAT", "recenter-to-list");
+            status("Recentrage vers la liste des conversations…", "START_CONTEXT_CHAT");
+            beginReturnToList("start-context-chat", 0);
+            schedule(300);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long next = sp.getLong(Prefs.NEXT_ACTION_AT, 0L);
+        if (next > now) {
+            schedule(Math.min(2000, next - now));
+            return;
+        }
+
         if (editor != null) {
             processChat(root, editor);
         } else {
@@ -387,11 +435,9 @@ public class DraftAccessibilityService extends AccessibilityService {
         }
 
         DiagnosticLog.event(this, "MESSAGE_SENT", currentFingerprint);
+        Prefs.addSkipped(this, currentFingerprint);
         updateBatchAndDelay();
-        handler.postDelayed(() -> {
-            performGlobalAction(GLOBAL_ACTION_BACK);
-            currentFingerprint = "";
-        }, 650);
+        beginReturnToList("message-sent", 350);
     }
 
     private void updateBatchAndDelay() {
@@ -420,11 +466,29 @@ public class DraftAccessibilityService extends AccessibilityService {
     }
 
     private void goBackToList(long delayAfterBack) {
+        Prefs.p(this).edit()
+                .putLong(Prefs.NEXT_ACTION_AT, System.currentTimeMillis() + Math.max(0, delayAfterBack))
+                .apply();
+        beginReturnToList("processed-chat", 250);
+    }
+
+    private void beginReturnToList(String reason, long firstBackDelayMs) {
+        if (!returningToList) {
+            returningToList = true;
+            returnBackAttempts = 0;
+            returnReason = reason == null ? "" : reason;
+            DiagnosticLog.event(this, "RETURN_TO_LIST_BEGIN", returnReason);
+        }
+
         handler.postDelayed(() -> {
-            performGlobalAction(GLOBAL_ACTION_BACK);
-            currentFingerprint = "";
-            Prefs.p(this).edit().putLong(Prefs.NEXT_ACTION_AT, System.currentTimeMillis() + delayAfterBack).apply();
-        }, 250);
+            if (!Prefs.p(this).getBoolean(Prefs.RUNNING, false) || !returningToList) return;
+            if (returnBackAttempts >= MAX_RETURN_BACK_ATTEMPTS) return;
+            boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
+            returnBackAttempts++;
+            DiagnosticLog.event(this, "RETURN_TO_LIST_BACK",
+                    "attempt=" + returnBackAttempts + " reason=" + returnReason + " ok=" + backed);
+            schedule(backed ? 350 : 650);
+        }, Math.max(0, firstBackDelayMs));
     }
 
     private void finishDiagnostic(String message, String code) {
@@ -440,10 +504,16 @@ public class DraftAccessibilityService extends AccessibilityService {
             expectedText = null;
             originalText = null;
             pendingAction = PendingAction.NONE;
+            returningToList = false;
+            returnBackAttempts = 0;
+            returnReason = "";
         }, 350);
     }
 
     private void failSafe(String message, String code) {
+        returningToList = false;
+        returnBackAttempts = 0;
+        returnReason = "";
         Prefs.p(this).edit().putBoolean(Prefs.RUNNING, false).putString(Prefs.STATUS, message).apply();
         DiagnosticLog.event(this, code, "PAUSED");
         lastStatus = message;
