@@ -11,8 +11,13 @@ update=(ROOT/'app/src/main/java/com/draftwa/mobile/UpdateManager.java').read_tex
 prefs=(ROOT/'app/src/main/java/com/draftwa/mobile/Prefs.java').read_text()
 main=(ROOT/'app/src/main/java/com/draftwa/mobile/MainActivity.java').read_text()
 diag=(ROOT/'app/src/main/java/com/draftwa/mobile/DiagnosticLog.java').read_text()
+opportunity=(ROOT/'app/src/main/java/com/draftwa/mobile/OpportunityActivity.java').read_text()
 config=(ROOT/'app/src/main/res/xml/accessibility_service_config.xml').read_text()
 build=(ROOT/'app/build.gradle').read_text()
+web_index=(ROOT/'opportunity-web/public/opportunities/index.html').read_text()
+web_search=(ROOT/'opportunity-web/api/opportunities/search.js').read_text()
+web_lib=(ROOT/'opportunity-web/lib/opportunity.js').read_text()
+
 check('INTERNET permission', 'android.permission.INTERNET' in manifest)
 check('REQUEST_INSTALL_PACKAGES permission', 'android.permission.REQUEST_INSTALL_PACKAGES' in manifest)
 check('Accessibility service bind permission', 'android.permission.BIND_ACCESSIBILITY_SERVICE' in manifest)
@@ -51,7 +56,19 @@ check('Missing WhatsApp blocks run', 'refuseMissingWhatsApp' in main and 'WA_BUS
 safe_block = diag[diag.find('static synchronized String safeSummary'):diag.find('static synchronized void clear')]
 check('Safe diagnostic strips event details', 'safeSummary' in safe_block and 'parts.length >= 2' in safe_block and 'append(parts[1])' in safe_block and 'parts[2]' not in safe_block and 'Événements (détails masqués)' in main)
 check('UI version comes from BuildConfig', '"v" + BuildConfig.VERSION_NAME' in main)
-check('Release version is 0.7.1', "orElse('701')" in build and "orElse('0.7.1')" in build)
+check('Release version is 0.8.0', "orElse('800')" in build and "orElse('0.8.0')" in build)
+
+check('Opportunity activity declared', 'android:name=".OpportunityActivity"' in manifest and 'android:exported="false"' in manifest)
+check('Opportunity UI entry exists', 'Ouvrir Carte & Prospection' in main and 'OpportunityActivity.class' in main)
+check('Opportunity URL is HTTPS build config', 'DRAFTWA_OPPORTUNITY_URL' in build and 'https://draftwa-mobile-five.vercel.app/opportunities/' in build)
+check('Opportunity WebView no JS bridge', 'addJavascriptInterface' not in opportunity)
+check('Opportunity WebView blocks cleartext', 'MIXED_CONTENT_NEVER_ALLOW' in opportunity and '"https".equalsIgnoreCase' in opportunity)
+check('Opportunity WebView restricts DraftWA host', 'draftwa-mobile-five.vercel.app' in opportunity and 'ALLOWED_HOST.equalsIgnoreCase' in opportunity)
+check('Opportunity backend uses server search', '/api/opportunities/search' in web_index or '/api/opportunities/search' in (ROOT/'opportunity-web/public/opportunities/app.js').read_text())
+check('Opportunity backend has OSM collection', 'collectOsm' in web_search and 'buildOverpassQuery' in web_lib)
+check('Opportunity backend has server scoring', 'rankEntities' in web_search and 'scoreEntity' in web_lib)
+check('Opportunity search streams progress', 'application/x-ndjson' in web_search and "type: 'progress'" in web_search)
+
 failed=[n for n,v in checks if not v]
 print(json.dumps({'total':len(checks),'passed':len(checks)-len(failed),'failed':failed},ensure_ascii=False))
 sys.exit(1 if failed else 0)
