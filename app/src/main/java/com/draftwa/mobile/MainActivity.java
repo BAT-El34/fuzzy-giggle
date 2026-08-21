@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
         TextView title = text("DraftWA Mobile", 29, true);
         title.setTextColor(Color.rgb(17, 27, 33));
         root.addView(title);
-        TextView sub = text("v" + BuildConfig.VERSION_NAME + " • Brouillons WhatsApp Business • fonctionnement hors ligne", 14, false);
+        TextView sub = text("v" + BuildConfig.VERSION_NAME + " • WhatsApp Business + Prospection serveur • hors ligne pour le moteur de brouillons", 14, false);
         sub.setTextColor(Color.rgb(84, 101, 111));
         root.addView(sub);
 
@@ -120,6 +120,14 @@ public class MainActivity extends Activity {
         Button stop = button("Pause");
         stop.setOnClickListener(v -> stopAutomation());
         runActions.addView(stop, weighted());
+
+        section(root, "Prospection cartographique");
+        TextView opportunityHelp = text("Nouveau : recherche d’entreprises et d’opportunités avec rayon, filtres, scoring et exports. Les calculs lourds s’exécutent sur le backend ; cette section nécessite Internet.", 13, false);
+        opportunityHelp.setTextColor(Color.rgb(84, 101, 111));
+        root.addView(opportunityHelp, lpMatch());
+        Button opportunity = primaryButton("Ouvrir Carte & Prospection");
+        opportunity.setOnClickListener(v -> openOpportunityModule());
+        root.addView(opportunity, lpMatchWithTop(8));
 
         section(root, "Réglages essentiels");
         condition = field(root, "Texte de confirmation", "Ex. Soko ou Soko ; Allo.", false);
@@ -203,6 +211,16 @@ public class MainActivity extends Activity {
         diagActions.addView(clear, weighted());
 
         return scroll;
+    }
+
+    private void openOpportunityModule() {
+        try {
+            startActivity(new Intent(this, OpportunityActivity.class));
+            DiagnosticLog.event(this, "OPPORTUNITY_ACTIVITY_LAUNCH", "ok");
+        } catch (Throwable t) {
+            DiagnosticLog.event(this, "OPPORTUNITY_ACTIVITY_FAILED", t.getClass().getSimpleName());
+            Toast.makeText(this, "Impossible d’ouvrir la prospection", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void toggleAdvanced() {
@@ -416,7 +434,8 @@ public class MainActivity extends Activity {
         if (readiness != null) {
             readiness.setText((waInstalled ? "✓" : "!") + " WhatsApp Business : " + (waInstalled ? "détecté" : "à installer")
                     + "\n" + (accessibilityEnabled ? "✓" : "!") + " Accessibilité DraftWA : " + (accessibilityEnabled ? "activée" : "à activer")
-                    + "\n" + (diagnosticEnabled ? "✓ Mode diagnostic sécurisé" : "⚠ Mode réel : envoi autorisé"));
+                    + "\n" + (diagnosticEnabled ? "✓ Mode diagnostic sécurisé" : "⚠ Mode réel : envoi autorisé")
+                    + "\n☁ Prospection : backend séparé, Internet uniquement pour cette section");
         }
     }
 
