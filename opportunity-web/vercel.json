@@ -4,7 +4,12 @@
     "api/opportunities/search.js": { "maxDuration": 60, "memory": 1024 },
     "api/opportunities/geocode.js": { "maxDuration": 20, "memory": 512 },
     "api/opportunities/export.js": { "maxDuration": 30, "memory": 512 },
-    "api/opportunities/health.js": { "maxDuration": 10, "memory": 256 }
+    "api/opportunities/health.js": { "maxDuration": 10, "memory": 256 },
+    "api/android-lab/status.js": { "maxDuration": 10, "memory": 256 },
+    "api/android-lab/recipes.js": { "maxDuration": 20, "memory": 256 },
+    "api/android-lab/instances.js": { "maxDuration": 35, "memory": 256 },
+    "api/android-lab/session.js": { "maxDuration": 20, "memory": 256 },
+    "api/android-lab/stop.js": { "maxDuration": 20, "memory": 256 }
   },
   "headers": [
     {
@@ -13,6 +18,15 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    },
+    {
+      "source": "/android-lab/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(self)" }
       ]
     }
   ]
