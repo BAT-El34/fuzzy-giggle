@@ -2,6 +2,7 @@
 const assert = require('assert');
 const lib = require('../lib/opportunity');
 const exp = require('../api/opportunities/export')._test;
+const geny = require('../lib/genymotion');
 
 function near(actual, expected, tolerance, label){assert(Math.abs(actual-expected)<=tolerance, `${label}: ${actual} vs ${expected}`)}
 
@@ -30,4 +31,12 @@ const csv=exp.toCsv([{name:'=2+2',category:'IT',lat:1,lng:2}]); assert(csv.inclu
 const geo=JSON.parse(exp.toGeoJson([{name:'X',lat:1,lng:2}])); assert.equal(geo.features[0].geometry.coordinates[0],2);
 const xls=exp.toExcelTsv([{name:'X',lat:1,lng:2}]); assert(xls.includes('\t'));
 
-console.log('PASS opportunity-web tests');
+const recipe=geny.normalizeRecipe({uuid:'095be615-a8ad-4c33-8e9c-c7612fbf6c9f',name:'Pixel Android 15',is_official:true,os_image:{arch:'arm64',os_version:{os_version:'15.0',sdk_version:35}}});
+assert.equal(recipe.arch,'arm64'); assert.equal(recipe.sdk,35); assert.equal(recipe.android,'15.0');
+const instance=geny.normalizeInstance({uuid:'095be615-a8ad-4c33-8e9c-c7612fbf6c9f',name:'Lab',state:'ONLINE',recipe_uuid:'597eb633-0943-4de5-b80a-1b0319522204',webrtc_url:'wss://ws.geny.io/x',file_upload_url:'wss://ws.geny.io/upload',os_image:{arch:'arm64',os_version:{os_version:'15.0',sdk_version:35}}});
+assert.equal(instance.state,'ONLINE'); assert.equal(instance.arch,'arm64'); assert(instance.webrtcUrl.startsWith('wss://'));
+assert.equal(geny.assertUuid('095be615-a8ad-4c33-8e9c-c7612fbf6c9f'),'095be615-a8ad-4c33-8e9c-c7612fbf6c9f');
+assert.throws(()=>geny.assertUuid('not-a-uuid'),/invalide/);
+const flat=geny.flattenRecipeResponse({base:[{uuid:'095be615-a8ad-4c33-8e9c-c7612fbf6c9f'}],custom:[{uuid:'597eb633-0943-4de5-b80a-1b0319522204'}]}); assert.equal(flat.length,2);
+
+console.log('PASS opportunity-web + android-lab tests');
