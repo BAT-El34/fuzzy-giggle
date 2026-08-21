@@ -26,6 +26,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".OpportunityActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".DraftAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
