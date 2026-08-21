@@ -31,6 +31,7 @@ final class Prefs {
     static final String AUTO_UPDATE = "auto_update";
     static final String AUTO_DOWNLOAD = "auto_download";
     static final String PENDING_INSTALL_PERMISSION = "pending_install_permission";
+    static final String PENDING_DIAGNOSTIC_START = "pending_diagnostic_start";
     static final String STATUS = "status";
     static final String BATCH_TARGET = "batch_target";
     static final String SENT_IN_BATCH = "sent_in_batch";
@@ -72,6 +73,7 @@ final class Prefs {
         if (!sp.contains(AUTO_DOWNLOAD)) e.putBoolean(AUTO_DOWNLOAD, true);
         if (!sp.contains(RUNNING)) e.putBoolean(RUNNING, false);
         if (!sp.contains(PAUSED)) e.putBoolean(PAUSED, false);
+        if (!sp.contains(PENDING_DIAGNOSTIC_START)) e.putBoolean(PENDING_DIAGNOSTIC_START, false);
         if (!sp.contains(STATUS)) e.putString(STATUS, "Prêt");
         e.apply();
     }

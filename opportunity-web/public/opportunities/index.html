@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b6b57">
+  <meta name="description" content="Moteur de prospection cartographique DraftWA, calculé côté serveur.">
+  <title>DraftWA Opportunities</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3yn5Ec+MZTw9sjEJZyR2tIRqTkg24=" crossorigin="">
+  <link rel="stylesheet" href="/opportunities/styles.css">
+</head>
+<body>
+<header>
+  <h1>DraftWA Opportunities</h1>
+  <div class="subtitle">Recherche, rayon, scoring et exports calculés côté serveur — le téléphone sert surtout d’interface.</div>
+</header>
+<main class="shell">
+  <section class="card controls">
+    <div class="statusline">
+      <span id="backendChip" class="chip">Backend…</span>
+      <span id="osmChip" class="chip">OSM</span>
+      <span id="googleChip" class="chip">Google Places</span>
+    </div>
+
+    <label for="place">Ville, adresse ou point central</label>
+    <div class="row">
+      <input id="place" autocomplete="off" value="Hof, Bayern, Deutschland" placeholder="Ex. Hof, Allemagne">
+      <button id="geocodeBtn" type="button">Localiser</button>
+    </div>
+
+    <div class="row">
+      <div><label for="lat">Latitude</label><input id="lat" inputmode="decimal" value="50.313"></div>
+      <div><label for="lng">Longitude</label><input id="lng" inputmode="decimal" value="11.912"></div>
+    </div>
+
+    <label for="radius">Rayon : <span id="radiusLabel">3,0 km</span></label>
+    <input id="radius" type="range" min="500" max="20000" step="500" value="3000">
+
+    <label for="keywords">Mots-clés de priorité</label>
+    <textarea id="keywords">Software
+IT
+Engineering
+Industrie
+Logistik
+Beratung
+Bank
+Praktikum</textarea>
+
+    <div class="row">
+      <div><label for="minScore">Score minimum</label><select id="minScore"><option value="0">Tous</option><option value="40">40+</option><option value="55" selected>55+ (B)</option><option value="70">70+ (A)</option><option value="85">85+ (A+)</option></select></div>
+      <div><label for="maxRows">Affichage</label><select id="maxRows"><option>100</option><option selected>250</option><option>500</option><option>1000</option></select></div>
+    </div>
+
+    <div class="checks">
+      <label><input id="useGoogle" type="checkbox"> Google Places</label>
+      <label><input id="fitBounds" type="checkbox" checked> Ajuster la carte</label>
+    </div>
+
+    <button id="searchBtn" class="primary" type="button">Lancer la recherche serveur</button>
+
+    <div class="progressWrap" aria-live="polite">
+      <div class="progressTrack"><div id="progressBar" class="progressBar"></div></div>
+      <div id="progressText" class="progressText">Prêt.</div>
+    </div>
+
+    <label>Exports générés par le serveur</label>
+    <div class="actions">
+      <button class="exportBtn" data-format="csv" disabled>CSV</button>
+      <button class="exportBtn" data-format="excel" disabled>Excel</button>
+      <button class="exportBtn" data-format="json" disabled>JSON</button>
+      <button class="exportBtn" data-format="geojson" disabled>GeoJSON</button>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card mapCard">
+      <div id="map"></div>
+      <div class="mapOverlay"><span class="mapNotice">Carte OSM • les liens Google Maps restent disponibles sur chaque résultat.</span></div>
+    </div>
+
+    <div class="card resultsCard">
+      <div class="resultsHead">
+        <div><strong>Résultats</strong><div id="summary" class="muted">Aucune recherche.</div></div>
+        <div id="stats" class="stats"></div>
+      </div>
+      <div class="filters">
+        <input id="resultFilter" placeholder="Filtrer les résultats affichés">
+        <select id="priorityFilter"><option value="">Toutes priorités</option><option>A+</option><option>A</option><option>B</option><option>C</option><option>D</option></select>
+      </div>
+      <div class="tableWrap">
+        <table>
+          <thead><tr><th>Priorité</th><th>Nom</th><th>Catégorie</th><th>Distance</th><th>Score</th><th>Source</th><th>Liens</th></tr></thead>
+          <tbody id="resultsBody"><tr><td colspan="7" class="empty">Lance une recherche pour remplir la carte.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>Les données sont issues de sources publiques. Google Places n’est utilisé que si une clé API serveur est configurée et si l’option est activée. Vérifie les informations avant toute prise de contact.</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/opportunities/app.js" defer></script>
+</body>
+</html>

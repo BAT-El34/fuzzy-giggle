@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API_LEVEL="${1:?API level required}"
+mkdir -p artifacts
+DRAFTWA="app/build/outputs/apk/debug/app-debug.apk"
+FAKEWA="fakewa/build/outputs/apk/debug/fakewa-debug.apk"
+SERVICE="com.draftwa.mobile/com.draftwa.mobile.DraftAccessibilityService"
+
+# Android 15 emulator images can occasionally surface a launcher-only ANR
+# ("Quickstep isn't responding") during cold boot. It is unrelated to DraftWA
+# but overlays the whole UI. Dismiss only that exact system-launcher dialog;
+# never dismiss an ANR belonging to DraftWA itself.
+dismiss_quickstep_anr() {
+  adb shell uiautomator dump /sdcard/system-overlay.xml >/dev/null 2>&1 || return 0
+  adb pull /sdcard/system-overlay.xml artifacts/system-overlay.xml >/dev/null 2>&1 || return 0
+  python3 - <<'PY' || true
+import re, subprocess, xml.etree.ElementTree as ET
+try:
+    root=ET.parse('artifacts/system-overlay.xml').getroot()
+except Exception:
+    raise SystemExit(0)
+quickstep=False
+wait=None
+for n in root.iter('node'):
+    text=n.attrib.get('text','')
+    if text == "Quickstep isn't responding":
+        quickstep=True
+    if text == 'Wait' and n.attrib.get('package') == 'android':
+        wait=n
+if not quickstep or wait is None:
+    raise SystemExit(0)
+m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', wait.attrib.get('bounds',''))
+if not m:
+    raise SystemExit(0)
+x1,y1,x2,y2=map(int,m.groups())
+subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+print('Dismissed emulator Quickstep ANR overlay')
+PY
+  sleep 1
+}
+
+# API 35's AOSP Quickstep launcher can enter an ANR loop on hosted runners and
+# repeatedly cover the app under test. Suppress system error dialogs only inside
+# this ephemeral emulator. DraftWA crashes/ANRs remain independently fatal below
+# through explicit logcat checks, so this does not weaken the application gate.
+if [ "$API_LEVEL" -ge 35 ]; then
+  adb shell settings put global hide_error_dialogs 1 || true
+fi
+
+adb install -r "$FAKEWA"
+if [ "$API_LEVEL" -ge 35 ]; then
+  # Android 15 ECM deliberately restricts accessibility for local/sideload sources.
+  # CI installs as a store-source test fixture so accessibility mechanics can be
+  # exercised non-interactively. Production APKs do not receive this treatment.
+  adb push "$DRAFTWA" /data/local/tmp/draftwa-ci.apk >/dev/null
+  adb shell pm install -r --package-source 2 /data/local/tmp/draftwa-ci.apk
+else
+  adb install -r "$DRAFTWA"
+fi
+
+# Start from a clean process state, then explicitly launch the activity once.
+# A freshly installed/force-stopped package is marked STOPPED; Android may reject
+# or immediately sanitize enabled_accessibility_services for such a package.
+adb shell am force-stop com.draftwa.mobile
+adb logcat -c
+adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-start.txt
+sleep 1
+dismiss_quickstep_anr
+
+# Android 13/14 Restricted Settings can be pre-authorized for a test device by
+# this AppOp. Android 15 is handled above through PackageInstaller source=store.
+if [ "$API_LEVEL" -ge 33 ] && [ "$API_LEVEL" -lt 35 ]; then
+  adb shell cmd appops set com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS allow
+fi
+
+adb shell settings put secure enabled_accessibility_services "$SERVICE"
+adb shell settings put secure accessibility_enabled 1
+sleep 1
+
+ENABLED_SERVICES="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
+ACCESSIBILITY_ENABLED="$(adb shell settings get secure accessibility_enabled | tr -d '\r')"
+APP_OP="not-applicable"
+if [ "$API_LEVEL" -ge 33 ] && [ "$API_LEVEL" -lt 35 ]; then
+  APP_OP="$(adb shell cmd appops get com.draftwa.mobile ACCESS_RESTRICTED_SETTINGS 2>&1 | tr -d '\r')"
+fi
+printf 'enabled_accessibility_services=%s\naccessibility_enabled=%s\nrestricted_settings=%s\n' "$ENABLED_SERVICES" "$ACCESSIBILITY_ENABLED" "$APP_OP" > artifacts/accessibility-settings.txt
+if [[ "$ENABLED_SERVICES" != *"com.draftwa.mobile"* ]] || [[ "$ACCESSIBILITY_ENABLED" != "1" ]]; then
+  adb shell dumpsys accessibility > artifacts/dumpsys-accessibility.txt || true
+  adb shell dumpsys package com.draftwa.mobile > artifacts/dumpsys-package.txt || true
+  adb logcat -d -v threadtime > artifacts/prelaunch-logcat.txt || true
+  echo 'Accessibility secure settings were not retained'
+  exit 1
+fi
+
+# Require the system to actually bind the service, not merely persist the setting.
+CONNECTED=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if adb logcat -d -v brief | grep -q 'ACCESSIBILITY_CONNECTED'; then
+    CONNECTED=1
+    break
+  fi
+  sleep 1
+done
+if [ "$CONNECTED" != "1" ]; then
+  adb shell dumpsys accessibility > artifacts/dumpsys-accessibility.txt || true
+  adb shell dumpsys package com.draftwa.mobile > artifacts/dumpsys-package.txt || true
+  adb logcat -d -v threadtime > artifacts/prelaunch-logcat.txt || true
+  echo 'Accessibility service did not bind'
+  exit 1
+fi
+
+# MainActivity is already foreground from the un-stop launch above. Refresh its
+# status after binding so the UI sees the service as enabled.
+adb shell am start -W -n com.draftwa.mobile/.MainActivity > artifacts/app-refresh.txt
+sleep 3
+dismiss_quickstep_anr
+
+adb exec-out screencap -p > artifacts/draftwa-home.png || true
+adb shell uiautomator dump /sdcard/draftwa-home.xml >/dev/null
+adb pull /sdcard/draftwa-home.xml artifacts/draftwa-home.xml >/dev/null
+
+FOUND=0
+for ATTEMPT in 1 2 3 4 5 6 7 8; do
+  dismiss_quickstep_anr
+  adb shell uiautomator dump /sdcard/draftwa.xml >/dev/null
+  adb pull /sdcard/draftwa.xml artifacts/draftwa.xml >/dev/null
+  if python3 - <<'PY'
+import re, subprocess, xml.etree.ElementTree as ET
+root=ET.parse('artifacts/draftwa.xml').getroot()
+labels={'Tester en diagnostic','Reprendre','Démarrer le moteur','Démarrer'}
+for n in root.iter('node'):
+    if n.attrib.get('text') in labels and n.attrib.get('enabled','true') == 'true':
+        m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib.get('bounds',''))
+        if not m:
+            continue
+        x1,y1,x2,y2=map(int,m.groups())
+        visible_h=max(0, min(y2, 2320)-max(y1, 80))
+        if visible_h < 60 or y1 >= 2300:
+            continue
+        x=(x1+x2)//2
+        y=min((y1+y2)//2, 2280)
+        subprocess.check_call(['adb','shell','input','tap',str(x),str(y)])
+        raise SystemExit(0)
+raise SystemExit(9)
+PY
+  then
+    FOUND=1
+    break
+  fi
+  adb shell input swipe 540 1800 540 900 300
+  sleep 1
+done
+
+test "$FOUND" = "1"
+sleep 2
+dismiss_quickstep_anr
+adb shell uiautomator dump /sdcard/after-start.xml >/dev/null || true
+adb pull /sdcard/after-start.xml artifacts/after-start.xml >/dev/null || true
+sleep 28
+dismiss_quickstep_anr
+
+adb exec-out screencap -p > artifacts/final.png || true
+adb shell uiautomator dump /sdcard/final.xml >/dev/null || true
+adb pull /sdcard/final.xml artifacts/final.xml >/dev/null || true
+adb logcat -d -v threadtime > artifacts/logcat.txt
+adb shell run-as com.whatsapp.w4b cat shared_prefs/ci.xml > artifacts/fakewa-ci.xml 2>/dev/null || true
+cat artifacts/fakewa-ci.xml || true
+
+grep -q 'ACCESSIBILITY_CONNECTED' artifacts/logcat.txt
+grep -q 'RUN_START' artifacts/logcat.txt
+grep -q 'name="transformed_seen" value="true"' artifacts/fakewa-ci.xml
+grep -q 'name="restored" value="true"' artifacts/fakewa-ci.xml
+! grep -q 'name="sent" value="true"' artifacts/fakewa-ci.xml
+
+grep -q 'DRAFT_SCAN_PAGE' artifacts/logcat.txt
+grep -q 'DRAFT_INDICATORS' artifacts/logcat.txt
+grep -q 'DRAFT_OPENED' artifacts/logcat.txt
+grep -q 'EDITOR_FOUND' artifacts/logcat.txt
+grep -q 'CONFIRMATION_PASS' artifacts/logcat.txt
+grep -q 'TRANSFORM_PASS' artifacts/logcat.txt
+grep -q 'RESTORED_OK' artifacts/logcat.txt
+grep -q 'SEND_SKIPPED_DIAGNOSTIC' artifacts/logcat.txt
+
+PID="$(adb shell pidof com.draftwa.mobile | tr -d '\r')"
+test -n "$PID"
+if grep -A30 'FATAL EXCEPTION' artifacts/logcat.txt | grep -q 'com.draftwa.mobile'; then
+  echo 'DraftWA crashed'
+  exit 1
+fi
+if grep -E -q 'ANR in com\.draftwa\.mobile|Application Not Responding: com\.draftwa\.mobile' artifacts/logcat.txt; then
+  echo 'DraftWA ANR detected'
+  exit 1
+fi
+
+printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\n' "$API_LEVEL" > artifacts/result.txt

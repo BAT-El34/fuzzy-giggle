@@ -1,0 +1,1 @@
+{"name":"DraftWA Map Search","short_name":"Map Search","description":"Recherche cartographique, scoring et export server-first.","start_url":"/map/","scope":"/map/","display":"standalone","background_color":"#f3f6f5","theme_color":"#0b6b57","icons":[{"src":"/map/icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

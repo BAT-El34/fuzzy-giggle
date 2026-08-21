@@ -5,8 +5,11 @@ plugins {
 def updateManifestUrl = providers.gradleProperty('DRAFTWA_UPDATE_MANIFEST_URL')
         .orElse('https://draftwa-mobile-five.vercel.app/latest.json')
         .get()
-def releaseVersionCode = providers.gradleProperty('DRAFTWA_VERSION_CODE').orElse('700').get().toInteger()
-def releaseVersionName = providers.gradleProperty('DRAFTWA_VERSION_NAME').orElse('0.7.0').get()
+def opportunityUrl = providers.gradleProperty('DRAFTWA_OPPORTUNITY_URL')
+        .orElse('https://draftwa-mobile-five.vercel.app/opportunities/')
+        .get()
+def releaseVersionCode = providers.gradleProperty('DRAFTWA_VERSION_CODE').orElse('800').get().toInteger()
+def releaseVersionName = providers.gradleProperty('DRAFTWA_VERSION_NAME').orElse('0.8.0').get()
 
 android {
     namespace 'com.draftwa.mobile'
@@ -19,6 +22,7 @@ android {
         versionCode releaseVersionCode
         versionName releaseVersionName
         buildConfigField 'String', 'UPDATE_MANIFEST_URL', '"' + updateManifestUrl + '"'
+        buildConfigField 'String', 'OPPORTUNITY_URL', '"' + opportunityUrl + '"'
     }
 
     buildFeatures {
