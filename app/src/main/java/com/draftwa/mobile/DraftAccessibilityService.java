@@ -1,8 +1,10 @@
 package com.draftwa.mobile;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.GestureDescription;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
@@ -20,7 +22,9 @@ import java.util.Set;
 public class DraftAccessibilityService extends AccessibilityService {
     static final String WA_PACKAGE = "com.whatsapp.w4b";
     private static final String ID_PREFIX = WA_PACKAGE + ":id/";
-    private static final int MAX_SCROLLS = 18;
+    private static final int MAX_SCROLLS = 120;
+    private static final int END_STABLE_CONFIRMATIONS = 4;
+    private static final int MAX_LIST_MISSING_RETRIES = 8;
     private static final int MAX_RETURN_BACK_ATTEMPTS = 4;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -174,6 +178,7 @@ public class DraftAccessibilityService extends AccessibilityService {
             if (chats != null) DiagnosticLog.event(this, "CHATS_TAB_FOUND", "");
             Prefs.p(this).edit().putBoolean(Prefs.CHATS_TAB_PROBED, true).putInt(Prefs.SCROLL_COUNT, 0).apply();
             if (chats != null && chats.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                resetListScanGuards(true);
                 status("Ouverture de l’onglet Chats", "CHATS_TAB_CLICK");
                 schedule(700);
                 return;
@@ -187,8 +192,8 @@ public class DraftAccessibilityService extends AccessibilityService {
                 Prefs.p(this).edit()
                         .putBoolean(Prefs.FILTER_PROBED, true)
                         .putBoolean(Prefs.ALL_FILTER_PROBED, true)
-                        .putInt(Prefs.SCROLL_COUNT, 0)
                         .apply();
+                resetListScanGuards(true);
                 status("Filtre Brouillons actif", "DRAFT_FILTER_CLICK");
                 schedule(700);
                 return;
@@ -215,7 +220,7 @@ public class DraftAccessibilityService extends AccessibilityService {
             if (all != null) DiagnosticLog.event(this, "ALL_FILTER_FOUND", "");
             Prefs.p(this).edit().putBoolean(Prefs.ALL_FILTER_PROBED, true).apply();
             if (all != null && all.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                Prefs.p(this).edit().putInt(Prefs.SCROLL_COUNT, 0).apply();
+                resetListScanGuards(true);
                 status("Vue Toutes active", "ALL_FILTER_CLICK");
                 schedule(650);
                 return;
@@ -238,44 +243,166 @@ public class DraftAccessibilityService extends AccessibilityService {
         }
         if (openFirstUnskipped(fallback)) return;
 
+        sp = Prefs.p(this);
         list = firstById(root, "conversation_list");
         if (list == null) list = findBestScrollable(root);
         int scrolls = sp.getInt(Prefs.SCROLL_COUNT, 0);
         DiagnosticLog.event(this, "DRAFT_SCAN_PAGE", String.valueOf(scrolls + 1));
 
-        if (list != null) {
-            String viewport = viewportSignature(list);
-            String previous = sp.getString(Prefs.LAST_VIEWPORT, "");
-            int same = viewport.equals(previous) && !viewport.isEmpty()
-                    ? sp.getInt(Prefs.SAME_VIEWPORT_COUNT, 0) + 1
-                    : 0;
+        // A missing or temporarily stale RecyclerView must never be interpreted as
+        // the end of the draft list. Real WhatsApp rebuilds its accessibility tree
+        // while scrolling; on API 31 this can produce a short window with no
+        // scrollable list at all.
+        if (list == null) {
+            int missing = sp.getInt(Prefs.LIST_MISSING_COUNT, 0) + 1;
+            Prefs.p(this).edit().putInt(Prefs.LIST_MISSING_COUNT, missing).apply();
+            DiagnosticLog.event(this, "LIST_CONTAINER_MISSING_RETRY",
+                    "attempt=" + missing + "/" + MAX_LIST_MISSING_RETRIES + " scrolls=" + scrolls);
+            if (missing < MAX_LIST_MISSING_RETRIES) {
+                status("Liste en cours de rafraîchissement • nouvelle tentative " + missing,
+                        "LIST_CONTAINER_MISSING_RETRY");
+                schedule(450 + Math.min(700, missing * 90L));
+                return;
+            }
+            failSafe("Liste des conversations momentanément illisible • relance DraftWA requise",
+                    "DRAFT_LIST_UNAVAILABLE");
+            return;
+        }
+
+        Prefs.p(this).edit().putInt(Prefs.LIST_MISSING_COUNT, 0).apply();
+        String viewport = viewportSignature(list);
+        String previous = sp.getString(Prefs.LAST_VIEWPORT, "");
+        boolean sameViewport = viewport.equals(previous) && !viewport.isEmpty();
+        int same = sameViewport ? sp.getInt(Prefs.SAME_VIEWPORT_COUNT, 0) + 1 : 0;
+        int stalled = sameViewport ? sp.getInt(Prefs.SCROLL_STALL_COUNT, 0) : 0;
+        Prefs.p(this).edit()
+                .putString(Prefs.LAST_VIEWPORT, viewport)
+                .putInt(Prefs.SAME_VIEWPORT_COUNT, same)
+                .apply();
+
+        if (scrolls >= MAX_SCROLLS) {
+            failSafe("Limite de sécurité de défilement atteinte avant confirmation de fin",
+                    "DRAFT_SCAN_SCROLL_LIMIT");
+            return;
+        }
+
+        // 2 = native accessibility scroll accepted, 1 = gesture dispatched,
+        // 0 = every method refused. Native actions are always retried first on a
+        // freshly acquired node. A dispatched gesture is only an attempt, not
+        // proof that the viewport actually moved.
+        int scrollResult = performRobustScroll(list);
+        if (scrollResult == 2) {
             Prefs.p(this).edit()
-                    .putString(Prefs.LAST_VIEWPORT, viewport)
-                    .putInt(Prefs.SAME_VIEWPORT_COUNT, same)
+                    .putInt(Prefs.SCROLL_COUNT, scrolls + 1)
+                    .putInt(Prefs.SCROLL_STALL_COUNT, 0)
                     .apply();
-            if (same >= 2) {
-                Prefs.p(this).edit().putBoolean(Prefs.RUNNING, false)
-                        .putString(Prefs.STATUS, "Fin de liste détectée").apply();
-                DiagnosticLog.event(this, "DRAFT_SCAN_STOP_SAME_VIEWPORT", "scrolls=" + scrolls);
-                return;
-            }
+            DiagnosticLog.event(this, "LIST_SCROLL_ACCEPTED",
+                    "mode=node page=" + (scrolls + 2) + " stable=" + same);
+            status("Défilement • page " + (scrolls + 2), "LIST_SCROLL");
+            schedule(750);
+            return;
         }
 
-        if (list != null && scrolls < MAX_SCROLLS) {
-            boolean moved = list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
-            if (moved) {
-                Prefs.p(this).edit().putInt(Prefs.SCROLL_COUNT, scrolls + 1).apply();
-                status("Défilement • page " + (scrolls + 2), "LIST_SCROLL");
-                schedule(650);
+        if (sameViewport) stalled++;
+        else stalled = 0;
+        Prefs.p(this).edit().putInt(Prefs.SCROLL_STALL_COUNT, stalled).apply();
+
+        if (scrollResult == 1) {
+            Prefs.p(this).edit().putInt(Prefs.SCROLL_COUNT, scrolls + 1).apply();
+            DiagnosticLog.event(this, "LIST_SCROLL_ACCEPTED",
+                    "mode=gesture-unverified page=" + (scrolls + 2)
+                            + " stable=" + same + " stalled=" + stalled);
+            if (same >= END_STABLE_CONFIRMATIONS && stalled >= END_STABLE_CONFIRMATIONS) {
+                stopNoMoreDrafts(scrolls + 1, "gesture-no-movement-confirmed");
                 return;
             }
+            status("Défilement gestuel • vérification du déplacement", "LIST_SCROLL");
+            schedule(900);
+            return;
         }
 
+        if (same >= END_STABLE_CONFIRMATIONS && stalled >= END_STABLE_CONFIRMATIONS) {
+            stopNoMoreDrafts(scrolls, "scroll-refused-and-viewport-stable");
+            return;
+        }
+
+        DiagnosticLog.event(this, "LIST_SCROLL_RETRY",
+                "stable=" + same + " stalled=" + stalled + " scrolls=" + scrolls);
+        status("Défilement non confirmé • nouvelle tentative", "LIST_SCROLL_RETRY");
+        schedule(650);
+    }
+
+    private void stopNoMoreDrafts(int scrolls, String reason) {
         Prefs.p(this).edit()
                 .putBoolean(Prefs.RUNNING, false)
-                .putString(Prefs.STATUS, "Aucun autre brouillon détecté")
+                .putString(Prefs.STATUS, "Aucun autre brouillon détecté • fin confirmée")
                 .apply();
-        DiagnosticLog.event(this, "NO_MORE_DRAFTS", "scrolls=" + scrolls);
+        DiagnosticLog.event(this, "DRAFT_SCAN_END_CONFIRMED",
+                "scrolls=" + scrolls + " reason=" + reason);
+        DiagnosticLog.event(this, "NO_MORE_DRAFTS",
+                "scrolls=" + scrolls + " reason=" + reason + " confirmed=true");
+    }
+
+    private int performRobustScroll(AccessibilityNodeInfo list) {
+        if (list == null) return 0;
+
+        try {
+            if (list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                DiagnosticLog.event(this, "LIST_SCROLL_NODE", "ACTION_SCROLL_FORWARD");
+                return 2;
+            }
+        } catch (Throwable t) {
+            DiagnosticLog.event(this, "LIST_SCROLL_NODE_FAILED", t.getClass().getSimpleName());
+        }
+
+        try {
+            if (list.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId())) {
+                DiagnosticLog.event(this, "LIST_SCROLL_NODE", "ACTION_SCROLL_DOWN");
+                return 2;
+            }
+        } catch (Throwable t) {
+            DiagnosticLog.event(this, "LIST_SCROLL_DOWN_FAILED", t.getClass().getSimpleName());
+        }
+
+        if (dispatchListSwipe(list)) {
+            DiagnosticLog.event(this, "LIST_SCROLL_GESTURE", "fallback-after-node-refusal");
+            return 1;
+        }
+        return 0;
+    }
+
+    private boolean dispatchListSwipe(AccessibilityNodeInfo list) {
+        try {
+            Rect r = new Rect();
+            list.getBoundsInScreen(r);
+            int width = Math.max(0, r.right - r.left);
+            int height = Math.max(0, r.bottom - r.top);
+            if (width < 80 || height < 240) return false;
+            float x = r.left + width * 0.5f;
+            float fromY = r.top + height * 0.78f;
+            float toY = r.top + height * 0.24f;
+            if (fromY <= toY + 80f) return false;
+            Path path = new Path();
+            path.moveTo(x, fromY);
+            path.lineTo(x, toY);
+            GestureDescription gesture = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 360))
+                    .build();
+            return dispatchGesture(gesture, null, null);
+        } catch (Throwable t) {
+            DiagnosticLog.event(this, "LIST_SCROLL_GESTURE_FAILED", t.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void resetListScanGuards(boolean resetScrollCount) {
+        SharedPreferences.Editor e = Prefs.p(this).edit()
+                .putString(Prefs.LAST_VIEWPORT, "")
+                .putInt(Prefs.SAME_VIEWPORT_COUNT, 0)
+                .putInt(Prefs.SCROLL_STALL_COUNT, 0)
+                .putInt(Prefs.LIST_MISSING_COUNT, 0);
+        if (resetScrollCount) e.putInt(Prefs.SCROLL_COUNT, 0);
+        e.apply();
     }
 
     private boolean openFirstUnskipped(List<AccessibilityNodeInfo> candidates) {
@@ -288,7 +415,7 @@ public class DraftAccessibilityService extends AccessibilityService {
             if (skipped.contains(fp)) continue;
             currentFingerprint = fp;
             if (row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                Prefs.p(this).edit().putInt(Prefs.SCROLL_COUNT, 0).apply();
+                resetListScanGuards(true);
                 DiagnosticLog.event(this, "DRAFT_OPENED", fp);
                 status("Brouillon ouvert", "DRAFT_OPENED");
                 schedule(700);

@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.BaseAdapter;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -43,7 +44,7 @@ public class MainActivity extends Activity {
 
         updateState();
 
-        ListView list = new ListView(this);
+        ListView list = new FlakyListView();
         list.setId(R.id.conversation_list);
         list.setAdapter(new ChatAdapter());
         root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -64,8 +65,30 @@ public class MainActivity extends Activity {
         root.addView(state, Math.min(2, root.getChildCount()));
     }
 
+    // Reproduces the real-device condition reported on Android API 31: the
+    // WhatsApp conversation list exists, but its first accessibility scroll
+    // commands can be refused while the list/tree is refreshing. DraftWA must
+    // recover via its gesture fallback rather than declaring NO_MORE_DRAFTS.
+    private final class FlakyListView extends ListView {
+        private int accessibilityScrollRefusals = 2;
+
+        FlakyListView() {
+            super(MainActivity.this);
+        }
+
+        @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
+            boolean isScroll = action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    || action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId();
+            if (isScroll && accessibilityScrollRefusals > 0) {
+                accessibilityScrollRefusals--;
+                return false;
+            }
+            return super.performAccessibilityAction(action, arguments);
+        }
+    }
+
     private final class ChatAdapter extends BaseAdapter {
-        @Override public int getCount() { return 30; }
+        @Override public int getCount() { return 90; }
         @Override public Object getItem(int p) { return p; }
         @Override public long getItemId(int p) { return p; }
 
@@ -81,7 +104,7 @@ public class MainActivity extends Activity {
             name.setTextSize(17);
             row.addView(name);
 
-            if (p == 22) {
+            if (p == 72) {
                 TextView draft = new TextView(MainActivity.this);
                 draft.setId(R.id.draft_indicator);
                 draft.setText("Brouillon");
