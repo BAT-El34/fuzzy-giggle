@@ -30,6 +30,7 @@ public class DraftAccessibilityService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
     private long lastLaunchAt = 0L;
+    private long lastChatsRecoveryAt = 0L;
     private String lastStatus = "";
     private String currentFingerprint = "";
     private String expectedText = null;
@@ -166,12 +167,19 @@ public class DraftAccessibilityService extends AccessibilityService {
         SharedPreferences sp = Prefs.p(this);
         status("Recherche des brouillons…", "LIST_SCAN");
 
-        AccessibilityNodeInfo list = firstById(root, "conversation_list");
+        AccessibilityNodeInfo exactList = firstById(root, "conversation_list");
+        AccessibilityNodeInfo list = exactList;
         if (list != null) DiagnosticLog.event(this, "CONVERSATION_LIST_FOUND", "view-id");
         if (list == null) {
-            list = findBestScrollable(root);
-            if (list != null) DiagnosticLog.event(this, "CONVERSATION_LIST_FOUND", "scrollable-fallback");
+            list = findBestConversationScrollable(root);
+            if (list != null) DiagnosticLog.event(this, "CONVERSATION_LIST_FOUND", "safe-scrollable-fallback");
         }
+
+        // WhatsApp Business exposes tab containers as scrollable accessibility
+        // nodes on some builds. A generic ACTION_SCROLL_FORWARD on that pager can
+        // switch from Chats/Discussions to Calls/Appels. Recover the Chats tab
+        // before any list action and never trust a navigation pager as the list.
+        if (recoverChatsTabIfNeeded(root, list, exactList != null)) return;
 
         if (firstById(root, "conversation_list") == null && !sp.getBoolean(Prefs.CHATS_TAB_PROBED, false)) {
             AccessibilityNodeInfo chats = findExactTextClickableOutside(root, list, "Chats", "Discussions");
@@ -245,7 +253,7 @@ public class DraftAccessibilityService extends AccessibilityService {
 
         sp = Prefs.p(this);
         list = firstById(root, "conversation_list");
-        if (list == null) list = findBestScrollable(root);
+        if (list == null) list = findBestConversationScrollable(root);
         int scrolls = sp.getInt(Prefs.SCROLL_COUNT, 0);
         DiagnosticLog.event(this, "DRAFT_SCAN_PAGE", String.valueOf(scrolls + 1));
 
@@ -290,7 +298,7 @@ public class DraftAccessibilityService extends AccessibilityService {
         // 0 = every method refused. Native actions are always retried first on a
         // freshly acquired node. A dispatched gesture is only an attempt, not
         // proof that the viewport actually moved.
-        int scrollResult = performRobustScroll(list);
+        int scrollResult = performRobustScroll(root, list);
         if (scrollResult == 2) {
             Prefs.p(this).edit()
                     .putInt(Prefs.SCROLL_COUNT, scrolls + 1)
@@ -343,7 +351,7 @@ public class DraftAccessibilityService extends AccessibilityService {
                 "scrolls=" + scrolls + " reason=" + reason + " confirmed=true");
     }
 
-    private int performRobustScroll(AccessibilityNodeInfo list) {
+    private int performRobustScroll(AccessibilityNodeInfo root, AccessibilityNodeInfo list) {
         if (list == null) return 0;
 
         try {
@@ -364,24 +372,45 @@ public class DraftAccessibilityService extends AccessibilityService {
             DiagnosticLog.event(this, "LIST_SCROLL_DOWN_FAILED", t.getClass().getSimpleName());
         }
 
-        if (dispatchListSwipe(list)) {
-            DiagnosticLog.event(this, "LIST_SCROLL_GESTURE", "fallback-after-node-refusal");
+        if (dispatchListSwipe(root, list)) {
+            DiagnosticLog.event(this, "LIST_SCROLL_GESTURE", "safe-zone-fallback-after-node-refusal");
             return 1;
         }
         return 0;
     }
 
-    private boolean dispatchListSwipe(AccessibilityNodeInfo list) {
+    private boolean dispatchListSwipe(AccessibilityNodeInfo root, AccessibilityNodeInfo list) {
         try {
             Rect r = new Rect();
             list.getBoundsInScreen(r);
             int width = Math.max(0, r.right - r.left);
             int height = Math.max(0, r.bottom - r.top);
             if (width < 80 || height < 240) return false;
+
+            // Never start a synthetic swipe near WhatsApp's bottom navigation.
+            // Some accessibility trees report a list/pager whose bounds include
+            // the tab bar; reserving the bottom area prevents a gesture from
+            // touching Calls/Appels even when those bounds are temporarily broad.
+            int safeTop = r.top + Math.max(24, height / 12);
+            int safeBottom = r.bottom - Math.max(36, height / 8);
+            int navTop = navigationBarTop(root, list, r);
+            if (navTop > safeTop) {
+                safeBottom = Math.min(safeBottom, navTop - Math.max(18, height / 50));
+            }
+            int safeHeight = safeBottom - safeTop;
+            if (safeHeight < 180) {
+                DiagnosticLog.event(this, "LIST_SCROLL_SAFE_ZONE_REJECTED",
+                        "bounds=" + r.flattenToString() + " navTop=" + navTop);
+                return false;
+            }
+
             float x = r.left + width * 0.5f;
-            float fromY = r.top + height * 0.78f;
-            float toY = r.top + height * 0.24f;
+            float fromY = safeTop + safeHeight * 0.82f;
+            float toY = safeTop + safeHeight * 0.24f;
             if (fromY <= toY + 80f) return false;
+            DiagnosticLog.event(this, "LIST_SCROLL_SAFE_ZONE",
+                    "x=" + (int) x + " from=" + (int) fromY + " to=" + (int) toY
+                            + " navTop=" + navTop);
             Path path = new Path();
             path.moveTo(x, fromY);
             path.lineTo(x, toY);
@@ -393,6 +422,31 @@ public class DraftAccessibilityService extends AccessibilityService {
             DiagnosticLog.event(this, "LIST_SCROLL_GESTURE_FAILED", t.getClass().getSimpleName());
             return false;
         }
+    }
+
+    private int navigationBarTop(AccessibilityNodeInfo root, AccessibilityNodeInfo list, Rect listBounds) {
+        int best = Integer.MAX_VALUE;
+        String[] labels = new String[] {
+                "Chats", "Discussions", "Calls", "Appels", "Updates", "Actus",
+                "Mises à jour", "Communities", "Communautés"
+        };
+        for (String label : labels) {
+            for (AccessibilityNodeInfo n : byText(root, label)) {
+                if (n == null || (list != null && isDescendantOf(n, list))) continue;
+                String text = nodeText(n).trim();
+                CharSequence desc = n.getContentDescription();
+                String d = desc == null ? "" : desc.toString().trim();
+                if (!text.equalsIgnoreCase(label) && !d.equalsIgnoreCase(label)) continue;
+                AccessibilityNodeInfo c = clickableAncestor(n, 8);
+                if (c == null) c = n;
+                Rect b = new Rect();
+                c.getBoundsInScreen(b);
+                if (b.top > listBounds.top + 40 && b.top < listBounds.bottom) {
+                    best = Math.min(best, b.top);
+                }
+            }
+        }
+        return best == Integer.MAX_VALUE ? -1 : best;
     }
 
     private void resetListScanGuards(boolean resetScrollCount) {
@@ -751,17 +805,18 @@ public class DraftAccessibilityService extends AccessibilityService {
         return false;
     }
 
-    private AccessibilityNodeInfo findBestScrollable(AccessibilityNodeInfo root) {
+    private AccessibilityNodeInfo findBestConversationScrollable(AccessibilityNodeInfo root) {
         AccessibilityNodeInfo[] best = new AccessibilityNodeInfo[1];
         int[] bestScore = new int[] { Integer.MIN_VALUE };
-        findBestScrollable(root, 0, best, bestScore);
+        findBestConversationScrollable(root, 0, best, bestScore);
         return best[0];
     }
 
-    private void findBestScrollable(AccessibilityNodeInfo n, int depth, AccessibilityNodeInfo[] best, int[] bestScore) {
+    private void findBestConversationScrollable(AccessibilityNodeInfo n, int depth,
+            AccessibilityNodeInfo[] best, int[] bestScore) {
         if (n == null || depth > 14) return;
         try {
-            if (n.isScrollable()) {
+            if (n.isScrollable() && !looksLikeNavigationScroller(n)) {
                 Rect r = new Rect();
                 n.getBoundsInScreen(r);
                 int height = Math.max(0, r.bottom - r.top);
@@ -774,7 +829,99 @@ public class DraftAccessibilityService extends AccessibilityService {
             }
         } catch (Throwable ignored) {}
         int count = Math.min(n.getChildCount(), 30);
-        for (int i = 0; i < count; i++) findBestScrollable(n.getChild(i), depth + 1, best, bestScore);
+        for (int i = 0; i < count; i++) {
+            findBestConversationScrollable(n.getChild(i), depth + 1, best, bestScore);
+        }
+    }
+
+    private boolean looksLikeNavigationScroller(AccessibilityNodeInfo n) {
+        if (n == null) return true;
+        try {
+            CharSequence cls = n.getClassName();
+            String c = cls == null ? "" : cls.toString().toLowerCase(Locale.ROOT);
+            if (c.contains("viewpager") || c.contains("pager") || c.contains("tablayout")) return true;
+            for (AccessibilityNodeInfo.AccessibilityAction a : n.getActionList()) {
+                int id = a.getId();
+                if (id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()
+                        || id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId()) {
+                    return true;
+                }
+            }
+            boolean chats = containsExactLabel(n, 0, "Chats", "Discussions");
+            boolean otherTab = containsExactLabel(n, 0, "Calls", "Appels", "Updates", "Actus",
+                    "Mises à jour", "Communities", "Communautés");
+            return chats && otherTab;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    private boolean containsExactLabel(AccessibilityNodeInfo n, int depth, String... labels) {
+        if (n == null || depth > 8) return false;
+        String text = nodeText(n).trim();
+        CharSequence desc = n.getContentDescription();
+        String d = desc == null ? "" : desc.toString().trim();
+        for (String label : labels) {
+            if (text.equalsIgnoreCase(label) || d.equalsIgnoreCase(label)) return true;
+        }
+        int count = Math.min(n.getChildCount(), 24);
+        for (int i = 0; i < count; i++) {
+            if (containsExactLabel(n.getChild(i), depth + 1, labels)) return true;
+        }
+        return false;
+    }
+
+    private boolean recoverChatsTabIfNeeded(AccessibilityNodeInfo root, AccessibilityNodeInfo list,
+            boolean exactListPresent) {
+        AccessibilityNodeInfo chats = findExactTextClickableOutside(root, list, "Chats", "Discussions");
+        if (chats == null) return false;
+
+        boolean chatsSelected = nodeOrAncestorSelected(chats, 8);
+        boolean otherSelected = false;
+        String[] otherLabels = new String[] {
+                "Calls", "Appels", "Updates", "Actus", "Mises à jour", "Communities", "Communautés"
+        };
+        for (String label : otherLabels) {
+            AccessibilityNodeInfo other = findExactTextClickableOutside(root, list, label);
+            if (other != null && nodeOrAncestorSelected(other, 8)) {
+                otherSelected = true;
+                break;
+            }
+        }
+
+        long now = SystemClock.elapsedRealtime();
+        boolean uncertainMissingList = !exactListPresent && !chatsSelected && !otherSelected
+                && now - lastChatsRecoveryAt > 2500L;
+        if (!otherSelected && !uncertainMissingList) return false;
+
+        boolean clicked = false;
+        try {
+            clicked = chats.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        } catch (Throwable ignored) {}
+        if (!clicked) {
+            DiagnosticLog.event(this, "CHATS_TAB_RECOVERY_FAILED",
+                    "otherSelected=" + otherSelected + " exactList=" + exactListPresent);
+            return false;
+        }
+
+        lastChatsRecoveryAt = now;
+        resetListScanGuards(true);
+        DiagnosticLog.event(this, "CHATS_TAB_RECOVERY",
+                "otherSelected=" + otherSelected + " exactList=" + exactListPresent);
+        status("Retour à l’onglet Discussions avant défilement", "CHATS_TAB_RECOVERY");
+        schedule(700);
+        return true;
+    }
+
+    private boolean nodeOrAncestorSelected(AccessibilityNodeInfo n, int max) {
+        AccessibilityNodeInfo cur = n;
+        for (int i = 0; cur != null && i <= max; i++) {
+            try {
+                if (cur.isSelected() || cur.isChecked()) return true;
+            } catch (Throwable ignored) {}
+            cur = cur.getParent();
+        }
+        return false;
     }
 
     private boolean setEditorText(AccessibilityNodeInfo editor, String value) {
