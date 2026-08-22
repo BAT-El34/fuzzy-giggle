@@ -40,7 +40,9 @@ public class MainActivity extends Activity {
         chats.setTextSize(18);
         chats.setClickable(true);
         chats.setPadding(8, 12, 8, 12);
-        chats.setSelected(true);
+        // Start with ambiguous tab-selection metadata so DraftWA must explicitly
+        // normalize back to Chats before using the scrollable fallback.
+        chats.setSelected(false);
         chats.setOnClickListener(v -> {
             getSharedPreferences("ci", MODE_PRIVATE).edit().putBoolean("calls_selected", false).apply();
             chats.setSelected(true);
@@ -53,8 +55,9 @@ public class MainActivity extends Activity {
         // chooses it and accidentally changes tabs. 0.8.4 must reject it.
         for (int i = 0; i < 18; i++) {
             TextView spacer = new TextView(this);
-            spacer.setText("Header " + i);
-            spacer.setVisibility(View.GONE);
+            spacer.setText("H" + i);
+            spacer.setTextSize(1);
+            spacer.setHeight(1);
             root.addView(spacer);
         }
 
