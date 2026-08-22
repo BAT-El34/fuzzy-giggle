@@ -40,7 +40,7 @@ La 0.8.1 renforce notamment :
 
 ## Validation de release 0.8.1
 
-GitHub Actions run **32528293529** :
+GitHub Actions run **32528293529** (source exacte `draftwa-0.8.1`) :
 
 - contrôles statiques : **53/53 PASS** ;
 - modèle conversationnel : **3 000 simulations PASS** ;
@@ -54,6 +54,26 @@ GitHub Actions run **32528293529** :
 - aucun crash DraftWA détecté : **PASS** ;
 - aucun ANR DraftWA détecté : **PASS** ;
 - release candidate exact : **PASS**.
+
+## Gate canonique de préproduction
+
+Le workflow canonique `.github/workflows/android-integration.yml` a été revalidé sur `preproduction` par le run **32579199707** au commit `d1f177da2c49cb3fe262fef71919d3fb44d7325b`.
+
+Entre la source publiée 0.8.1 et ce commit de préproduction, seuls le workflow CI, le README et `RELEASE_CHECKLIST.md` ont changé ; le code Android reste celui de 0.8.1 / versionCode 801.
+
+Résultats de la gate canonique :
+
+- contrôles statiques : **53/53 PASS** ;
+- modèle conversationnel : **3 000 simulations PASS** ;
+- règles métier : **10 017/10 017 PASS** ;
+- Android API 30 : **PASS** ;
+- Android API 34 : **PASS** ;
+- Android API 35 : **PASS** ;
+- transformation puis restauration du brouillon : **PASS** ;
+- aucun envoi en diagnostic : **PASS** ;
+- aucun crash / ANR DraftWA détecté : **PASS** ;
+- candidat release non signé : **PASS** ;
+- artifacts API 30/34/35 et release candidate : **présents**.
 
 ## Release publiée
 
