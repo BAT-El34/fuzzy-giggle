@@ -59,7 +59,7 @@ check('Missing WhatsApp blocks run', 'refuseMissingWhatsApp' in main and 'WA_BUS
 safe_block = diag[diag.find('static synchronized String safeSummary'):diag.find('static synchronized void clear')]
 check('Safe diagnostic strips event details', 'safeSummary' in safe_block and 'parts.length >= 2' in safe_block and 'append(parts[1])' in safe_block and 'parts[2]' not in safe_block and 'Événements (détails masqués)' in main)
 check('UI version comes from BuildConfig', '"v" + BuildConfig.VERSION_NAME' in main)
-check('Release version is 0.8.1', "orElse('801')" in build and "orElse('0.8.1')" in build)
+check('Release version is 0.8.2', "orElse('802')" in build and "orElse('0.8.2')" in build)
 
 check('Opportunity activity declared', 'android:name=".OpportunityActivity"' in manifest and 'android:exported="false"' in manifest)
 check('Opportunity UI entry exists', 'Ouvrir Carte & Prospection' in main and 'OpportunityActivity.class' in main)
