@@ -1,49 +1,50 @@
 # DraftWA Mobile
 
-Branche de release de **DraftWA Mobile 0.7.1**.
+Branche de préproduction de **DraftWA Mobile 0.8.1**.
 
-Le mini-site historique du dépôt reste intact sur la branche par défaut `codespace-fuzzy-giggle-v6g5vgq6rwrpcpx7`.
+Le mini-site historique du dépôt reste intact sur la branche par défaut `codespace-fuzzy-giggle-v6g5vgq6rwrpcpx7`. Ne pas remplacer cette branche par le projet Android.
 
-## Version actuelle
+## Version actuellement publiée
 
-- Version : **0.7.1**
-- versionCode : **701**
+- Version : **0.8.1**
+- versionCode : **801**
 - Package Android : `com.draftwa.mobile`
 - Cible : WhatsApp Business `com.whatsapp.w4b`
 - minSdk : **26**
 - targetSdk / compileSdk : **35**
 - Build : **Gradle / Android Gradle Plugin / D8 standard**
-- Aucun patch DEX manuel n'est utilisé pour cette release.
+- Aucun patch DEX manuel n'est utilisé.
 
 ## Fonctionnement principal
 
-DraftWA utilise un `AccessibilityService` avec `flagReportViewIds` pour détecter les brouillons WhatsApp Business, parcourir la liste des conversations et appliquer les règles configurées.
+DraftWA utilise un `AccessibilityService` avec `flagReportViewIds` pour détecter les brouillons WhatsApp Business, parcourir la liste des conversations, ouvrir le bon chat et appliquer les règles configurées.
 
-Le mode diagnostic est le mode de validation privilégié :
+Le mode diagnostic est la première gate fonctionnelle :
 
 1. détecter un brouillon ;
 2. vérifier les règles de confirmation ;
-3. appliquer temporairement la transformation ;
-4. vérifier la transformation ;
-5. restaurer le texte original ;
-6. vérifier la restauration ;
-7. ne jamais appuyer sur **Envoyer**.
+3. calculer la transformation ;
+4. appliquer temporairement la transformation lorsque le scénario le requiert ;
+5. vérifier le texte transformé ;
+6. restaurer le texte original ;
+7. vérifier la restauration ;
+8. ne jamais appuyer sur **Envoyer** en diagnostic.
 
-La 0.7.1 ajoute notamment :
+La 0.8.1 renforce notamment :
 
-- parcours guidé « Tester en diagnostic » ;
-- reprise automatique après activation de l'accessibilité ;
-- état de préparation plus clair ;
-- blocage sûr si WhatsApp Business est absent ;
-- résumé de diagnostic partageable sans contenu des brouillons ;
-- affichage dynamique de la version ;
-- maintien des préférences existantes lors de la mise à jour.
+- le recentrage vers la liste si WhatsApp est déjà ouvert dans un chat ;
+- le retour fiable à la liste après traitement ;
+- la reprise du scan après temporisation ;
+- la continuité du mode diagnostic non destructif ;
+- l'updater HTTPS avec vérification SHA-256, package, versionCode et certificat.
 
-## Validation de release
+## Validation de release 0.8.1
 
-GitHub Actions run **32422003845** :
+GitHub Actions run **32528293529** :
 
-- contrôles statiques / modèle : **PASS** ;
+- contrôles statiques : **53/53 PASS** ;
+- modèle conversationnel : **3 000 simulations PASS** ;
+- règles métier : **10 017/10 017 PASS** ;
 - Android API 30 : **PASS** ;
 - Android API 34 : **PASS** ;
 - Android API 35 : **PASS** ;
@@ -54,30 +55,37 @@ GitHub Actions run **32422003845** :
 - aucun ANR DraftWA détecté : **PASS** ;
 - release candidate exact : **PASS**.
 
-Le banc API 35 neutralise uniquement les overlays/ANR du launcher Android Emulator lorsqu'ils apparaissent, puis échoue explicitement si un crash ou ANR de `com.draftwa.mobile` est détecté.
-
 ## Release publiée
 
 APK signé avec le certificat permanent DraftWA.
 
 SHA-256 :
 
-`20b11da6db28e41c8e9f8241df826099916e945d99bf77079f17b358f5b8a9ce`
+`6aa9c03472aba680c62a34f89927bc5cc02bc990347970a42ef62678dea8fc75`
 
 Canal officiel d'installation / mise à jour :
 
 https://draftwa-mobile-five.vercel.app
 
-Le manifeste de mise à jour est disponible via :
+Manifeste de mise à jour :
 
 https://draftwa-mobile-five.vercel.app/latest.json
 
+Le fichier distribué reste le fichier Drive permanent `DraftWA-latest.apk`.
+
 ## Branches utiles
 
-- `draftwa-0.7.1` : source exacte de la release 0.7.1 ;
+- `preproduction` : branche canonique pour les prochaines validations ;
+- `draftwa-0.8.1` : source de la release actuellement publiée ;
 - `draftwa-latest` : pointeur stable vers la dernière release validée ;
-- `draftwa-0.7.0` : release précédente ;
-- `draftwa-testbed` : historique du banc de test.
+- `draftwa-testbed` : historique du banc de test ;
+- branches `draftwa-0.x.y` antérieures : historique des releases.
+
+## CI canonique
+
+`.github/workflows/android-integration.yml` est le workflow de gate de `preproduction`.
+
+Les workflows versionnés historiques (`android-integration-070.yml`, `android-integration-080.yml`, etc.) sont conservés pour la traçabilité mais ne doivent pas servir de référence pour une future release sans vérification.
 
 ## Sécurité de distribution
 
@@ -89,4 +97,7 @@ Le mécanisme de mise à jour vérifie notamment :
 - versionCode strictement supérieur ;
 - continuité de la signature de l'application ;
 - taille maximale de l'APK ;
-- permission Android d'installation lorsque nécessaire.
+- confirmation Android pour l'installation ;
+- reprise après autorisation de la source lorsque nécessaire.
+
+La clé de signature release et ses secrets ne doivent jamais être commités, copiés dans Vercel ou écrits dans les logs CI.

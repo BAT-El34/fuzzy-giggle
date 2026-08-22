@@ -1,4 +1,4 @@
-name: DraftWA 0.7.0 Android Integration
+name: DraftWA Android Release Matrix
 
 on:
   workflow_dispatch:
@@ -9,12 +9,25 @@ on:
       - 'app/**'
       - 'fakewa/**'
       - 'tools/**'
+      - 'opportunity-web/**'
+      - '*.gradle'
+      - 'settings.gradle'
+      - '.github/workflows/android-integration.yml'
+  pull_request:
+    branches:
+      - preproduction
+    paths:
+      - 'app/**'
+      - 'fakewa/**'
+      - 'tools/**'
+      - 'opportunity-web/**'
       - '*.gradle'
       - 'settings.gradle'
       - '.github/workflows/android-integration.yml'
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   rules:
@@ -25,13 +38,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Static and model validation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Static, model and backend validation
         run: |
+          set -euxo pipefail
           python3 tools/static_review.py
           python3 tools/engine_model_test.py
           mkdir -p build/rules
           javac -d build/rules app/src/main/java/com/draftwa/mobile/MessageRules.java tools/RuleSimulation.java
           java -cp build/rules com.draftwa.mobile.RuleSimulation
+          if [ -d opportunity-web ]; then
+            node --check opportunity-web/lib/opportunity.js
+            node --check opportunity-web/lib/server.js
+            node --check opportunity-web/api/opportunities/health.js
+            node --check opportunity-web/api/opportunities/geocode.js
+            node --check opportunity-web/api/opportunities/search.js
+            node --check opportunity-web/api/opportunities/export.js
+            node --check opportunity-web/public/opportunities/app.js
+            node opportunity-web/tests/run-tests.js
+          fi
 
   android-integration:
     needs: rules
@@ -51,6 +78,19 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Publish run link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_LEVEL: ${{ matrix.api-level }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl --retry 3 --fail-with-body -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"pending\",\"target_url\":\"${RUN_URL}\",\"description\":\"DraftWA API ${API_LEVEL} diagnostic running\",\"context\":\"draftwa/api-${API_LEVEL}\"}"
+
       - name: Build DraftWA and fake WhatsApp Business
         run: gradle --no-daemon :app:assembleDebug :fakewa:assembleDebug
 
@@ -67,81 +107,24 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: |
-            set -euxo pipefail
-            mkdir -p artifacts
-            DRAFTWA=app/build/outputs/apk/debug/app-debug.apk
-            FAKEWA=fakewa/build/outputs/apk/debug/fakewa-debug.apk
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          script: bash tools/ci_android_journey.sh ${{ matrix.api-level }}
 
-            adb install -r "$FAKEWA"
-            adb install -r "$DRAFTWA"
-            adb shell settings put secure enabled_accessibility_services com.draftwa.mobile/com.draftwa.mobile.DraftAccessibilityService
-            adb shell settings put secure accessibility_enabled 1
-            adb shell am force-stop com.draftwa.mobile
-            adb logcat -c
-            adb shell monkey -p com.draftwa.mobile -c android.intent.category.LAUNCHER 1
-            sleep 3
-
-            adb exec-out screencap -p > artifacts/draftwa-home.png || true
-            adb shell uiautomator dump /sdcard/draftwa-home.xml >/dev/null
-            adb pull /sdcard/draftwa-home.xml artifacts/draftwa-home.xml >/dev/null
-
-            FOUND=0
-            for ATTEMPT in 1 2 3 4 5 6; do
-              adb shell uiautomator dump /sdcard/draftwa.xml >/dev/null
-              adb pull /sdcard/draftwa.xml artifacts/draftwa.xml >/dev/null
-              if python3 - <<'PY'
-            import re, subprocess, xml.etree.ElementTree as ET
-            root=ET.parse('artifacts/draftwa.xml').getroot()
-            labels={'Tester en diagnostic','Reprendre','Démarrer le moteur'}
-            for n in root.iter('node'):
-                if n.attrib.get('text') in labels and n.attrib.get('enabled','true') == 'true':
-                    m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib['bounds'])
-                    if not m: continue
-                    x=(int(m.group(1))+int(m.group(3)))//2
-                    y=(int(m.group(2))+int(m.group(4)))//2
-                    subprocess.check_call(['adb','shell','input','tap',str(x),str(y)])
-                    raise SystemExit(0)
-            raise SystemExit(9)
-            PY
-              then
-                FOUND=1
-                break
-              fi
-              adb shell input swipe 540 1750 540 650 300
-              sleep 1
-            done
-            test "$FOUND" = "1"
-
-            sleep 22
-            adb exec-out screencap -p > artifacts/final.png || true
-            adb shell uiautomator dump /sdcard/final.xml >/dev/null || true
-            adb pull /sdcard/final.xml artifacts/final.xml >/dev/null || true
-            adb logcat -d -v threadtime > artifacts/logcat.txt
-
-            cat artifacts/final.xml || true
-
-            adb shell run-as com.whatsapp.w4b cat shared_prefs/ci.xml > artifacts/fakewa-ci.xml 2>/dev/null || true
-            cat artifacts/fakewa-ci.xml || true
-            grep -q 'name="opened" value="true"' artifacts/fakewa-ci.xml
-            ! grep -q 'name="modified" value="true"' artifacts/fakewa-ci.xml
-            ! grep -q 'name="sent" value="true"' artifacts/fakewa-ci.xml
-
-            grep -q 'DRAFT_SCAN_PAGE' artifacts/logcat.txt
-            grep -q 'DRAFT_INDICATORS' artifacts/logcat.txt
-            grep -q 'DRAFT_OPENED' artifacts/logcat.txt
-            grep -q 'CONDITION_PASS' artifacts/logcat.txt
-            grep -q 'TRANSFORM_PREVIEW.*Bonjour Soko, votre demande est prête.' artifacts/logcat.txt
-            grep -q 'SEND_SKIPPED_DIAGNOSTIC' artifacts/logcat.txt
-            ! grep -q 'SET_TEXT_OK' artifacts/logcat.txt
-
-            PID=$(adb shell pidof com.draftwa.mobile | tr -d '\r')
-            test -n "$PID"
-            if grep -A30 'FATAL EXCEPTION' artifacts/logcat.txt | grep -q 'com.draftwa.mobile'; then
-              echo 'DraftWA crashed'
-              exit 1
-            fi
+      - name: Publish matrix result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_LEVEL: ${{ matrix.api-level }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then STATE=success; else STATE=failure; fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl --retry 3 --fail-with-body -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "{\"state\":\"${STATE}\",\"target_url\":\"${RUN_URL}\",\"description\":\"DraftWA API ${API_LEVEL}: ${JOB_STATUS}\",\"context\":\"draftwa/api-${API_LEVEL}\"}"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -163,21 +146,46 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
       - name: Re-run non-Android validation
         run: |
+          set -euxo pipefail
           python3 tools/static_review.py
           python3 tools/engine_model_test.py
           mkdir -p build/rules
           javac -d build/rules app/src/main/java/com/draftwa/mobile/MessageRules.java tools/RuleSimulation.java
           java -cp build/rules com.draftwa.mobile.RuleSimulation
+          if [ -d opportunity-web ]; then node opportunity-web/tests/run-tests.js; fi
+
       - name: Build exact unsigned release candidate
         run: gradle --no-daemon :app:assembleRelease
+
+      - name: Package Android release signing toolchain
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "${BUILD_TOOLS}/apksigner"
+          test -x "${BUILD_TOOLS}/zipalign"
+          test -f "${BUILD_TOOLS}/lib/apksigner.jar"
+          mkdir -p release-tools/lib release-tools/lib64
+          cp "${BUILD_TOOLS}/apksigner" release-tools/
+          cp "${BUILD_TOOLS}/zipalign" release-tools/
+          cp "${BUILD_TOOLS}/lib/apksigner.jar" release-tools/lib/
+          if [ -d "${BUILD_TOOLS}/lib64" ]; then cp -a "${BUILD_TOOLS}/lib64/." release-tools/lib64/; fi
+          chmod +x release-tools/apksigner release-tools/zipalign
+          printf '%s\n' "${BUILD_TOOLS}" > release-tools/source.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: DraftWA-unsigned-release-candidate
-          path: app/build/outputs/apk/release/*.apk
+          path: |
+            app/build/outputs/apk/release/*.apk
+            release-tools/**
           if-no-files-found: error
           retention-days: 7
