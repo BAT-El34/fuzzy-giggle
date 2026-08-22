@@ -1,0 +1,41 @@
+name: Adjust DraftWA 0.8.4 regression
+
+on:
+  push:
+    branches:
+      - draftwa-0.8.4-fix-tab-scroll
+    paths:
+      - tools/adjust_084_regression.py
+      - .github/workflows/adjust-084-regression.yml
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: draftwa-0.8.4-fix-tab-scroll
+          fetch-depth: 0
+
+      - name: Strengthen regression fixture
+        run: python3 tools/adjust_084_regression.py
+
+      - name: Run static release review
+        run: python3 tools/static_review.py
+
+      - name: Remove one-shot adjustment files
+        run: |
+          git rm tools/adjust_084_regression.py
+          git rm .github/workflows/adjust-084-regression.yml
+
+      - name: Commit stronger regression fixture
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add fakewa/src/main/java/com/whatsapp/w4b/MainActivity.java
+          git commit -m "DraftWA 0.8.4: strengthen tab-switch regression"
+          git push origin HEAD:draftwa-0.8.4-fix-tab-scroll
