@@ -1,3 +1,4 @@
+// DraftWA 0.8.2 validation release marker
 plugins {
     id 'com.android.application'
 }
