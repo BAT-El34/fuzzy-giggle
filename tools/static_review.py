@@ -70,7 +70,7 @@ check('Opportunity WebView restricts DraftWA host', 'draftwa-mobile-five.vercel.
 check('Opportunity backend uses server search', '/api/opportunities/search' in web_index or '/api/opportunities/search' in (ROOT/'opportunity-web/public/opportunities/app.js').read_text())
 check('Opportunity backend has OSM collection', 'collectOsm' in web_search and 'buildOverpassQuery' in web_lib)
 check('Opportunity backend has server scoring', 'rankEntities' in web_search and 'scoreEntity' in web_lib)
-check('Opportunity search streams progress', 'application/x-ndjson' in web_search and "type: 'progress'" in web_search)
+check('Opportunity search streams progress', 'application/x-ndjson' in web_search and re.search(r"type\s*:\s*['\"]progress['\"]", web_search) is not None)
 
 failed=[n for n,v in checks if not v]
 print(json.dumps({'total':len(checks),'passed':len(checks)-len(failed),'failed':failed},ensure_ascii=False))
