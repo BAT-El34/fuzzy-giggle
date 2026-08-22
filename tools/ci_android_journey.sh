@@ -172,8 +172,11 @@ grep -q 'RUN_START' artifacts/logcat.txt
 grep -q 'name="transformed_seen" value="true"' artifacts/fakewa-ci.xml
 grep -q 'name="restored" value="true"' artifacts/fakewa-ci.xml
 ! grep -q 'name="sent" value="true"' artifacts/fakewa-ci.xml
+! grep -q 'name="calls_selected" value="true"' artifacts/fakewa-ci.xml
 
 grep -q 'DRAFT_SCAN_PAGE' artifacts/logcat.txt
+grep -q 'CHATS_TAB_RECOVERY' artifacts/logcat.txt
+grep -q 'LIST_SCROLL_SAFE_ZONE' artifacts/logcat.txt
 grep -q 'DRAFT_INDICATORS' artifacts/logcat.txt
 grep -q 'DRAFT_OPENED' artifacts/logcat.txt
 grep -q 'EDITOR_FOUND' artifacts/logcat.txt
@@ -193,4 +196,4 @@ if grep -E -q 'ANR in com\.draftwa\.mobile|Application Not Responding: com\.draf
   exit 1
 fi
 
-printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\n' "$API_LEVEL" > artifacts/result.txt
+printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nNO_CALLS_TAB_SWITCH=PASS\nSAFE_SCROLL_ZONE=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\n' "$API_LEVEL" > artifacts/result.txt

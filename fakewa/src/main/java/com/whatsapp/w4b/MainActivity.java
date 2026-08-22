@@ -26,7 +26,7 @@ public class MainActivity extends Activity {
     }
 
     private void build() {
-        root = new LinearLayout(this);
+        root = new DangerousPager();
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(16, 18, 16, 18);
 
@@ -40,14 +40,35 @@ public class MainActivity extends Activity {
         chats.setTextSize(18);
         chats.setClickable(true);
         chats.setPadding(8, 12, 8, 12);
+        chats.setSelected(true);
+        chats.setOnClickListener(v -> {
+            getSharedPreferences("ci", MODE_PRIVATE).edit().putBoolean("calls_selected", false).apply();
+            chats.setSelected(true);
+        });
         root.addView(chats);
 
         updateState();
 
+        // Inflate the outer scrollable pager score so 0.8.3's generic fallback
+        // chooses it and accidentally changes tabs. 0.8.4 must reject it.
+        for (int i = 0; i < 18; i++) {
+            TextView spacer = new TextView(this);
+            spacer.setText("Header " + i);
+            spacer.setVisibility(View.GONE);
+            root.addView(spacer);
+        }
+
         ListView list = new FlakyListView();
-        list.setId(R.id.conversation_list);
         list.setAdapter(new ChatAdapter());
         root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        TextView calls = new TextView(this);
+        calls.setText("Calls");
+        calls.setTextSize(18);
+        calls.setClickable(true);
+        calls.setPadding(8, 12, 8, 12);
+        calls.setOnClickListener(v -> markCallsSelected());
+        root.addView(calls);
         setContentView(root);
     }
 
@@ -59,10 +80,43 @@ public class MainActivity extends Activity {
         boolean transformed = getSharedPreferences("ci", MODE_PRIVATE).getBoolean("transformed_seen", false);
         boolean restored = getSharedPreferences("ci", MODE_PRIVATE).getBoolean("restored", false);
         boolean sent = getSharedPreferences("ci", MODE_PRIVATE).getBoolean("sent", false);
-        String label = sent ? "SENT_BAD" : (restored ? "RESTORED_OK" : (transformed ? "TRANSFORMED_SEEN" : "WAITING_FOR_DRAFTWA"));
+        boolean callsSelected = getSharedPreferences("ci", MODE_PRIVATE).getBoolean("calls_selected", false);
+        String label = callsSelected ? "CALLS_SELECTED_BAD" : (sent ? "SENT_BAD" : (restored ? "RESTORED_OK" : (transformed ? "TRANSFORMED_SEEN" : "WAITING_FOR_DRAFTWA")));
         state.setText(label);
-        state.setTextColor(sent ? Color.RED : ((restored || transformed) ? Color.rgb(0, 120, 80) : Color.GRAY));
+        state.setTextColor((sent || callsSelected) ? Color.RED : ((restored || transformed) ? Color.rgb(0, 120, 80) : Color.GRAY));
         root.addView(state, Math.min(2, root.getChildCount()));
+    }
+
+    private void markCallsSelected() {
+        getSharedPreferences("ci", MODE_PRIVATE).edit().putBoolean("calls_selected", true).apply();
+        updateState();
+    }
+
+    private final class DangerousPager extends LinearLayout {
+        DangerousPager() {
+            super(MainActivity.this);
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName("androidx.viewpager.widget.ViewPager");
+            info.setScrollable(true);
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT);
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT);
+        }
+
+        @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
+            boolean navigationScroll = action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    || action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()
+                    || action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()
+                    || action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId();
+            if (navigationScroll) {
+                markCallsSelected();
+                return true;
+            }
+            return super.performAccessibilityAction(action, arguments);
+        }
     }
 
     // Reproduces the real-device condition reported on Android API 31: the

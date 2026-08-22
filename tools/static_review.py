@@ -31,10 +31,13 @@ check('Diagnostic skips send', 'SEND_SKIPPED_DIAGNOSTIC' in service)
 check('Exact filter matching', 'findExactTextClickableOutside' in service)
 check('Draft filter labels excluded from fallback', 'all.equals("drafts") || all.equals("brouillons")' in service)
 check('All/Toutes fallback selection', 'ALL_FILTER_FOUND' in service and '"Toutes", "All"' in service)
-check('Generic scrollable list fallback', 'findBestScrollable' in service)
+check('Safe conversation scrollable fallback', 'findBestConversationScrollable' in service and 'looksLikeNavigationScroller' in service)
 check('Viewport end requires repeated confirmation', 'viewportSignature' in service and 'END_STABLE_CONFIRMATIONS' in service and 'DRAFT_SCAN_END_CONFIRMED' in service)
 check('Transient list loss retries instead of ending', 'LIST_CONTAINER_MISSING_RETRY' in service and 'DRAFT_LIST_UNAVAILABLE' in service and 'MAX_LIST_MISSING_RETRIES' in service)
 check('Gesture scroll fallback exists', 'GestureDescription' in service and 'dispatchListSwipe' in service and 'LIST_SCROLL_GESTURE' in service)
+check('Gesture avoids bottom navigation', 'LIST_SCROLL_SAFE_ZONE' in service and 'navigationBarTop' in service)
+check('Chats tab recovery guard exists', 'CHATS_TAB_RECOVERY' in service and 'recoverChatsTabIfNeeded' in service)
+check('Navigation pager is rejected', 'ACTION_SCROLL_LEFT' in service and 'ACTION_SCROLL_RIGHT' in service and 'looksLikeNavigationScroller' in service)
 scroll_block = service[service.find('private int performRobustScroll'):service.find('private boolean dispatchListSwipe')]
 check('Fresh node scroll retried before gesture fallback', 'ACTION_SCROLL_FORWARD' in scroll_block and 'ACTION_SCROLL_DOWN' in scroll_block and 'dispatchListSwipe' in scroll_block and scroll_block.find('ACTION_SCROLL_FORWARD') < scroll_block.find('dispatchListSwipe'))
 check('Gesture acceptance is explicitly unverified', 'mode=gesture-unverified' in service and 'gesture-no-movement-confirmed' in service)
@@ -66,7 +69,7 @@ check('Missing WhatsApp blocks run', 'refuseMissingWhatsApp' in main and 'WA_BUS
 safe_block = diag[diag.find('static synchronized String safeSummary'):diag.find('static synchronized void clear')]
 check('Safe diagnostic strips event details', 'safeSummary' in safe_block and 'parts.length >= 2' in safe_block and 'append(parts[1])' in safe_block and 'parts[2]' not in safe_block and 'Événements (détails masqués)' in main)
 check('UI version comes from BuildConfig', '"v" + BuildConfig.VERSION_NAME' in main)
-check('Release version is 0.8.3', "orElse('803')" in build and "orElse('0.8.3')" in build)
+check('Release version is 0.8.4', "orElse('804')" in build and "orElse('0.8.4')" in build)
 
 check('Opportunity activity declared', 'android:name=".OpportunityActivity"' in manifest and 'android:exported="false"' in manifest)
 check('Opportunity UI entry exists', 'Ouvrir Carte & Prospection' in main and 'OpportunityActivity.class' in main)
