@@ -1,3 +1,4 @@
+# Canonical preproduction release gate.
 name: DraftWA Android Release Matrix
 
 on:
