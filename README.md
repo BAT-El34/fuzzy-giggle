@@ -1,113 +1,85 @@
 # DraftWA Mobile
 
-Branche de préproduction de **DraftWA Mobile 0.8.1**.
+Branche canonique de préproduction de **DraftWA Mobile 0.8.2**.
 
 Le mini-site historique du dépôt reste intact sur la branche par défaut `codespace-fuzzy-giggle-v6g5vgq6rwrpcpx7`. Ne pas remplacer cette branche par le projet Android.
 
 ## Version actuellement publiée
 
-- Version : **0.8.1**
-- versionCode : **801**
+- Version : **0.8.2**
+- versionCode : **802**
 - Package Android : `com.draftwa.mobile`
 - Cible : WhatsApp Business `com.whatsapp.w4b`
 - minSdk : **26**
 - targetSdk / compileSdk : **35**
 - Build : **Gradle / Android Gradle Plugin / D8 standard**
-- Aucun patch DEX manuel n'est utilisé.
+- Aucun patch DEX manuel.
 
-## Fonctionnement principal
+La 0.8.2 conserve le moteur 0.8.1 validé et intègre le module Carte & Prospection / Opportunity avec API serveur sur le canal officiel DraftWA.
 
-DraftWA utilise un `AccessibilityService` avec `flagReportViewIds` pour détecter les brouillons WhatsApp Business, parcourir la liste des conversations, ouvrir le bon chat et appliquer les règles configurées.
+## Validation 0.8.2
 
-Le mode diagnostic est la première gate fonctionnelle :
+Pull Request de validation : **#4 — DraftWA 0.8.2 — release validation**.
 
-1. détecter un brouillon ;
-2. vérifier les règles de confirmation ;
-3. calculer la transformation ;
-4. appliquer temporairement la transformation lorsque le scénario le requiert ;
-5. vérifier le texte transformé ;
-6. restaurer le texte original ;
-7. vérifier la restauration ;
-8. ne jamais appuyer sur **Envoyer** en diagnostic.
+GitHub Actions run **32580964549** :
 
-La 0.8.1 renforce notamment :
-
-- le recentrage vers la liste si WhatsApp est déjà ouvert dans un chat ;
-- le retour fiable à la liste après traitement ;
-- la reprise du scan après temporisation ;
-- la continuité du mode diagnostic non destructif ;
-- l'updater HTTPS avec vérification SHA-256, package, versionCode et certificat.
-
-## Validation de release 0.8.1
-
-GitHub Actions run **32528293529** (source exacte `draftwa-0.8.1`) :
-
-- contrôles statiques : **53/53 PASS** ;
-- modèle conversationnel : **3 000 simulations PASS** ;
-- règles métier : **10 017/10 017 PASS** ;
+- contrôles statiques : **PASS** ;
+- modèle conversationnel : **PASS** ;
+- règles métier / fuzzing : **PASS** ;
 - Android API 30 : **PASS** ;
 - Android API 34 : **PASS** ;
 - Android API 35 : **PASS** ;
+- AccessibilityService : **PASS** ;
 - transformation diagnostique : **PASS** ;
 - restauration du brouillon : **PASS** ;
 - aucun envoi en diagnostic : **PASS** ;
-- aucun crash DraftWA détecté : **PASS** ;
-- aucun ANR DraftWA détecté : **PASS** ;
+- aucun crash / ANR DraftWA : **PASS** ;
 - release candidate exact : **PASS**.
 
-## Gate canonique de préproduction
+Commit de release fusionné :
 
-Le workflow canonique `.github/workflows/android-integration.yml` a été revalidé sur `preproduction` par le run **32579199707** au commit `d1f177da2c49cb3fe262fef71919d3fb44d7325b`.
+`d8bebb2108c12ccaf4086e5d3ef7b19daf44f0f0`
 
-Entre la source publiée 0.8.1 et ce commit de préproduction, seuls le workflow CI, le README et `RELEASE_CHECKLIST.md` ont changé ; le code Android reste celui de 0.8.1 / versionCode 801.
+Branches :
 
-Résultats de la gate canonique :
+- `draftwa-0.8.2` : source figée de la release ;
+- `draftwa-latest` : pointe sur la release 0.8.2 validée ;
+- `preproduction` : reprend les développements après la release.
 
-- contrôles statiques : **53/53 PASS** ;
-- modèle conversationnel : **3 000 simulations PASS** ;
-- règles métier : **10 017/10 017 PASS** ;
-- Android API 30 : **PASS** ;
-- Android API 34 : **PASS** ;
-- Android API 35 : **PASS** ;
-- transformation puis restauration du brouillon : **PASS** ;
-- aucun envoi en diagnostic : **PASS** ;
-- aucun crash / ANR DraftWA détecté : **PASS** ;
-- candidat release non signé : **PASS** ;
-- artifacts API 30/34/35 et release candidate : **présents**.
+## APK publiée
 
-## Release publiée
+L'APK finale est issue du candidat CI, alignée et signée dans l'environnement privé avec le certificat permanent DraftWA.
 
-APK signé avec le certificat permanent DraftWA.
+- package : `com.draftwa.mobile`
+- versionCode : `802`
+- versionName : `0.8.2`
+- SHA-256 :
 
-SHA-256 :
+`b199b5315b5b53f9b7c4b61a72be271438009dd3158378529ed4c27a39972f0e`
 
-`6aa9c03472aba680c62a34f89927bc5cc02bc990347970a42ef62678dea8fc75`
+Le fichier Drive permanent reste `DraftWA-latest.apk` et conserve son ID de distribution.
 
-Canal officiel d'installation / mise à jour :
+## Canal officiel
 
-https://draftwa-mobile-five.vercel.app
+Installation / mise à jour :
 
-Manifeste de mise à jour :
+https://draftwa-mobile-five.vercel.app/
+
+Manifeste updater :
 
 https://draftwa-mobile-five.vercel.app/latest.json
 
-Le fichier distribué reste le fichier Drive permanent `DraftWA-latest.apk`.
+Carte & Prospection :
 
-## Branches utiles
+https://draftwa-mobile-five.vercel.app/opportunities/
 
-- `preproduction` : branche canonique pour les prochaines validations ;
-- `draftwa-0.8.1` : source de la release actuellement publiée ;
-- `draftwa-latest` : pointeur stable vers la dernière release validée ;
-- `draftwa-testbed` : historique du banc de test ;
-- branches `draftwa-0.x.y` antérieures : historique des releases.
+Health API :
 
-## CI canonique
+https://draftwa-mobile-five.vercel.app/api/opportunities/health
 
-`.github/workflows/android-integration.yml` est le workflow de gate de `preproduction`.
+La production Vercel sert `latest.json`, le téléchargement APK et Carte & Prospection via fonctions Vercel afin d'éviter les erreurs de packaging statique observées pendant la publication 0.8.2.
 
-Les workflows versionnés historiques (`android-integration-070.yml`, `android-integration-080.yml`, etc.) sont conservés pour la traçabilité mais ne doivent pas servir de référence pour une future release sans vérification.
-
-## Sécurité de distribution
+## Sécurité updater
 
 Le mécanisme de mise à jour vérifie notamment :
 
@@ -115,9 +87,12 @@ Le mécanisme de mise à jour vérifie notamment :
 - SHA-256 ;
 - package Android attendu ;
 - versionCode strictement supérieur ;
-- continuité de la signature de l'application ;
-- taille maximale de l'APK ;
-- confirmation Android pour l'installation ;
-- reprise après autorisation de la source lorsque nécessaire.
+- continuité du certificat de signature ;
+- limite de taille APK ;
+- installation via `PackageInstaller` avec confirmation Android.
 
-La clé de signature release et ses secrets ne doivent jamais être commités, copiés dans Vercel ou écrits dans les logs CI.
+La clé privée release et ses secrets ne doivent jamais être commités, transférés à Vercel ni écrits dans les logs.
+
+## Limite de validation
+
+La release 0.8.2 est validée statiquement, par simulation et sur émulateurs Android API 30/34/35. Une validation sur appareil Android physique doit être documentée séparément et ne doit pas être prétendue sans preuve réelle.
