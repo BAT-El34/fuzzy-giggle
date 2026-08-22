@@ -44,6 +44,8 @@ final class Prefs {
     static final String SCAN_PAGE = "scan_page";
     static final String LAST_VIEWPORT = "last_viewport";
     static final String SAME_VIEWPORT_COUNT = "same_viewport_count";
+    static final String SCROLL_STALL_COUNT = "scroll_stall_count";
+    static final String LIST_MISSING_COUNT = "list_missing_count";
     static final String SKIPPED = "skipped";
     static final String LEGACY_MIGRATED = "legacy_migrated";
 
@@ -146,6 +148,8 @@ final class Prefs {
                 .putInt(SCAN_PAGE, 1)
                 .putString(LAST_VIEWPORT, "")
                 .putInt(SAME_VIEWPORT_COUNT, 0)
+                .putInt(SCROLL_STALL_COUNT, 0)
+                .putInt(LIST_MISSING_COUNT, 0)
                 .putInt(SENT_IN_BATCH, 0)
                 .putInt(BATCH_TARGET, 0)
                 .putLong(NEXT_ACTION_AT, 0L)
