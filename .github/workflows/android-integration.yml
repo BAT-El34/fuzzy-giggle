@@ -1,4 +1,5 @@
 # Canonical preproduction release gate.
+# Release gate refresh for DraftWA 0.8.2.
 name: DraftWA Android Release Matrix
 
 on:
