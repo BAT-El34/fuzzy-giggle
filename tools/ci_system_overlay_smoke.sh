@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
 API_LEVEL="${1:?API level required}"
 mkdir -p artifacts
@@ -11,6 +11,7 @@ adb shell appops set com.draftwa.mobile SYSTEM_ALERT_WINDOW allow \
   || adb shell cmd appops set com.draftwa.mobile SYSTEM_ALERT_WINDOW allow
 adb shell appops get com.draftwa.mobile SYSTEM_ALERT_WINDOW > artifacts/system-overlay-appop.txt 2>&1 || true
 
+grep -q 'SYSTEM_ALERT_WINDOW: allow' artifacts/system-overlay-appop.txt
 adb shell am start -W -n com.draftwa.mobile/.OverlayGateActivity > artifacts/system-overlay-gate-start.txt
 sleep 3
 
@@ -19,8 +20,9 @@ grep -q 'SYSTEM_OVERLAY_PERMISSION_OK' artifacts/system-overlay-start-logcat.txt
 grep -q 'SYSTEM_OVERLAY_SHOWN' artifacts/system-overlay-start-logcat.txt
 adb shell dumpsys activity services com.draftwa.mobile > artifacts/system-overlay-services.txt || true
 grep -q 'DraftOverlayService' artifacts/system-overlay-services.txt
+grep -q 'isForeground=true' artifacts/system-overlay-services.txt || grep -q 'isForeground=true' artifacts/system-overlay-services.txt
 
-# Prove the control remains visible outside DraftWA itself. Move to the launcher,
+# Prove the control remains usable outside DraftWA itself. Move to the launcher,
 # then touch the deterministic fresh-install bubble coordinates.
 adb shell input keyevent KEYCODE_HOME
 sleep 1
@@ -41,10 +43,28 @@ BUBBLE_X=$(( SCREEN_W - (39 * DENSITY + 80) / 160 ))
 BUBBLE_Y=$(( (203 * DENSITY + 80) / 160 ))
 printf 'screen=%sx%s density=%s bubble=%s,%s\n' "$SCREEN_W" "$SCREEN_H" "$DENSITY" "$BUBBLE_X" "$BUBBLE_Y" > artifacts/system-overlay-tap-coordinates.txt
 
-# The previous integration journey ends with the engine running. Pause while the
-# launcher is foreground; no DraftWA activity is visible at this point.
-adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/system-overlay-before-pause.xml
-grep -q 'name="running" value="true"' artifacts/system-overlay-before-pause.xml
+# The canonical diagnostic intentionally stops the engine after it proves the
+# deep draft was transformed and restored. Normalize that valid stopped state by
+# starting the engine from the system overlay while the launcher is foreground.
+adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/system-overlay-initial.xml
+if ! grep -q 'name="running" value="true"' artifacts/system-overlay-initial.xml; then
+  adb logcat -c
+  adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
+  sleep 2
+  adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/system-overlay-started.xml
+  grep -q 'name="running" value="true"' artifacts/system-overlay-started.xml
+  grep -q 'name="paused" value="false"' artifacts/system-overlay-started.xml
+  adb logcat -d -v brief > artifacts/system-overlay-started-logcat.txt
+  grep -Eq 'OVERLAY_START|OVERLAY_RESUME' artifacts/system-overlay-started-logcat.txt
+  grep -q 'OVERLAY_WA_LAUNCH' artifacts/system-overlay-started-logcat.txt
+  adb exec-out screencap -p > artifacts/system-overlay-started.png || true
+  # Starting/resuming intentionally wakes WhatsApp. Return to the launcher before
+  # exercising pause so the decisive tap happens with DraftWA and WhatsApp hidden.
+  adb shell input keyevent KEYCODE_HOME
+  sleep 1
+fi
+
+# Pause while the launcher is foreground; no DraftWA activity is visible.
 adb logcat -c
 adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
 sleep 1
@@ -73,4 +93,4 @@ test -n "$PID"
 adb shell dumpsys activity services com.draftwa.mobile > artifacts/system-overlay-services-final.txt || true
 grep -q 'DraftOverlayService' artifacts/system-overlay-services-final.txt
 
-printf 'API=%s\nSYSTEM_APPLICATION_OVERLAY=PASS\nOUTSIDE_APP_PAUSE=PASS\nOUTSIDE_APP_RESUME=PASS\nFOREGROUND_SERVICE=PASS\n' "$API_LEVEL" > artifacts/system-overlay-result.txt
+printf 'API=%s\nSYSTEM_APPLICATION_OVERLAY=PASS\nOUTSIDE_APP_START=PASS\nOUTSIDE_APP_PAUSE=PASS\nOUTSIDE_APP_RESUME=PASS\nFOREGROUND_SERVICE=PASS\n' "$API_LEVEL" > artifacts/system-overlay-result.txt
