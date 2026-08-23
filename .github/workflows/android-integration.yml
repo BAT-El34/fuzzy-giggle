@@ -1,5 +1,5 @@
 # Canonical preproduction release gate.
-# Release gate refresh for DraftWA 0.8.2.
+# Release gate refresh for DraftWA 0.8.6.
 name: DraftWA Android Release Matrix
 
 on:
@@ -110,7 +110,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
-          script: bash tools/ci_android_journey.sh ${{ matrix.api-level }}
+          script: bash tools/ci_android_journey.sh ${{ matrix.api-level }} && bash tools/ci_system_overlay_smoke.sh ${{ matrix.api-level }}
 
       - name: Publish matrix result
         if: always()
