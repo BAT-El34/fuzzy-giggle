@@ -22,6 +22,18 @@ adb shell dumpsys activity services com.draftwa.mobile > artifacts/system-overla
 grep -q 'DraftOverlayService' artifacts/system-overlay-services.txt
 grep -q 'isForeground=true' artifacts/system-overlay-services.txt
 
+# ci_android_journey.sh immediately before this smoke test has already validated
+# the accessibility engine end-to-end, including scanning, transformation,
+# restoration, safe scrolling and no-send behavior. Disable accessibility only in
+# this disposable emulator now so FakeWA cannot race the persisted running/paused
+# flags while the independent system overlay itself is being tested.
+adb shell settings put secure enabled_accessibility_services null
+adb shell settings put secure accessibility_enabled 0
+sleep 1
+ACCESSIBILITY_AFTER_ISOLATION="$(adb shell settings get secure accessibility_enabled | tr -d '\r')"
+printf 'accessibility_enabled=%s\n' "$ACCESSIBILITY_AFTER_ISOLATION" > artifacts/system-overlay-accessibility-isolation.txt
+test "$ACCESSIBILITY_AFTER_ISOLATION" = "0"
+
 # Prove the control is visible outside DraftWA itself. Move to the launcher and
 # use the deterministic fresh-install bubble coordinates.
 adb shell input keyevent KEYCODE_HOME
@@ -59,9 +71,9 @@ if ! grep -q 'name="running" value="true"' artifacts/system-overlay-initial.xml;
   adb exec-out screencap -p > artifacts/system-overlay-started.png || true
 fi
 
-# Starting/resuming deliberately wakes WhatsApp so the automation can work. The
-# next decisive tap therefore happens over WhatsApp — still outside DraftWA — and
-# proves the system overlay can pause the engine without reopening DraftWA.
+# Starting/resuming deliberately wakes WhatsApp. Accessibility is isolated for
+# this smoke test, so the next tap deterministically proves that the overlay can
+# pause the persisted engine state while WhatsApp — not DraftWA — is foreground.
 sleep 1
 adb logcat -c
 adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
@@ -73,8 +85,8 @@ adb logcat -d -v brief > artifacts/system-overlay-paused-logcat.txt
 grep -q 'OVERLAY_PAUSE' artifacts/system-overlay-paused-logcat.txt
 adb exec-out screencap -p > artifacts/system-overlay-paused.png || true
 
-# Resume from the same overlay over WhatsApp. The overlay service updates the
-# persisted state and wakes WhatsApp/accessibility if needed.
+# Resume from the same system overlay over WhatsApp. This validates that the
+# foreground service owns the control independently of the accessibility service.
 adb logcat -c
 adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
 sleep 2
@@ -90,5 +102,6 @@ PID="$(adb shell pidof com.draftwa.mobile | tr -d '\r')"
 test -n "$PID"
 adb shell dumpsys activity services com.draftwa.mobile > artifacts/system-overlay-services-final.txt || true
 grep -q 'DraftOverlayService' artifacts/system-overlay-services-final.txt
+grep -q 'isForeground=true' artifacts/system-overlay-services-final.txt
 
-printf 'API=%s\nSYSTEM_APPLICATION_OVERLAY=PASS\nOUTSIDE_DRAFTWA_START=PASS\nOVER_WHATSAPP_PAUSE=PASS\nOVER_WHATSAPP_RESUME=PASS\nFOREGROUND_SERVICE=PASS\n' "$API_LEVEL" > artifacts/system-overlay-result.txt
+printf 'API=%s\nSYSTEM_APPLICATION_OVERLAY=PASS\nOUTSIDE_DRAFTWA_START=PASS\nOVER_WHATSAPP_PAUSE=PASS\nOVER_WHATSAPP_RESUME=PASS\nFOREGROUND_SERVICE=PASS\nACCESSIBILITY_ISOLATED=PASS\n' "$API_LEVEL" > artifacts/system-overlay-result.txt
