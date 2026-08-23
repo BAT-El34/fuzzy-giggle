@@ -1,1 +1,0 @@
-Trigger one-shot overlay patch after workflow exists on branch.
