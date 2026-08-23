@@ -269,13 +269,21 @@ public class MainActivity extends Activity {
             return;
         }
 
-        Prefs.resetRunState(this);
-        Prefs.p(this).edit()
-                .putBoolean(Prefs.RUNNING, true)
-                .putBoolean(Prefs.PAUSED, false)
-                .putString(Prefs.STATUS, diagnostic.isChecked() ? "Diagnostic en cours…" : "Démarrage…")
-                .apply();
-        DiagnosticLog.event(this, "RUN_START", "diagnostic=" + diagnostic.isChecked());
+        SharedPreferences runPrefs = Prefs.p(this);
+        boolean resuming = runPrefs.getBoolean(Prefs.PAUSED, false);
+        if (resuming) {
+            long remaining = Prefs.resumeAutomation(this);
+            runPrefs.edit().putString(Prefs.STATUS, "Reprise…").apply();
+            DiagnosticLog.event(this, "RUN_RESUME", "remainingMs=" + remaining);
+        } else {
+            Prefs.resetRunState(this);
+            runPrefs.edit()
+                    .putBoolean(Prefs.RUNNING, true)
+                    .putBoolean(Prefs.PAUSED, false)
+                    .putString(Prefs.STATUS, diagnostic.isChecked() ? "Diagnostic en cours…" : "Démarrage…")
+                    .apply();
+            DiagnosticLog.event(this, "RUN_START", "diagnostic=" + diagnostic.isChecked());
+        }
         if (!launchWhatsAppBusiness()) {
             Prefs.p(this).edit()
                     .putBoolean(Prefs.RUNNING, false)
@@ -286,12 +294,9 @@ public class MainActivity extends Activity {
     }
 
     private void stopAutomation() {
-        Prefs.p(this).edit()
-                .putBoolean(Prefs.RUNNING, false)
-                .putBoolean(Prefs.PAUSED, true)
-                .putString(Prefs.STATUS, "En pause")
-                .apply();
-        DiagnosticLog.event(this, "RUN_PAUSE", "user");
+        long remaining = Prefs.pauseAutomation(this);
+        Prefs.p(this).edit().putString(Prefs.STATUS, "En pause").apply();
+        DiagnosticLog.event(this, "RUN_PAUSE", "remainingMs=" + remaining);
         refreshStatus();
     }
 

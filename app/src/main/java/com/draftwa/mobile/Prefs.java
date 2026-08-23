@@ -27,6 +27,9 @@ final class Prefs {
     static final String X_MAX = "x_max";
     static final String RUNNING = "running";
     static final String PAUSED = "paused";
+    static final String PAUSE_REMAINING_MS = "pause_remaining_ms";
+    static final String OVERLAY_X = "overlay_x";
+    static final String OVERLAY_Y = "overlay_y";
     static final String DIAGNOSTIC = "diagnostic";
     static final String AUTO_UPDATE = "auto_update";
     static final String AUTO_DOWNLOAD = "auto_download";
@@ -75,6 +78,7 @@ final class Prefs {
         if (!sp.contains(AUTO_DOWNLOAD)) e.putBoolean(AUTO_DOWNLOAD, true);
         if (!sp.contains(RUNNING)) e.putBoolean(RUNNING, false);
         if (!sp.contains(PAUSED)) e.putBoolean(PAUSED, false);
+        if (!sp.contains(PAUSE_REMAINING_MS)) e.putLong(PAUSE_REMAINING_MS, 0L);
         if (!sp.contains(PENDING_DIAGNOSTIC_START)) e.putBoolean(PENDING_DIAGNOSTIC_START, false);
         if (!sp.contains(STATUS)) e.putString(STATUS, "Prêt");
         e.apply();
@@ -153,8 +157,35 @@ final class Prefs {
                 .putInt(SENT_IN_BATCH, 0)
                 .putInt(BATCH_TARGET, 0)
                 .putLong(NEXT_ACTION_AT, 0L)
+                .putLong(PAUSE_REMAINING_MS, 0L)
                 .putStringSet(SKIPPED, new HashSet<>())
                 .apply();
+    }
+
+    static long pauseAutomation(Context c) {
+        SharedPreferences sp = p(c);
+        long now = System.currentTimeMillis();
+        long next = sp.getLong(NEXT_ACTION_AT, 0L);
+        long remaining = next > now ? next - now : 0L;
+        sp.edit()
+                .putBoolean(RUNNING, false)
+                .putBoolean(PAUSED, true)
+                .putLong(PAUSE_REMAINING_MS, remaining)
+                .apply();
+        return remaining;
+    }
+
+    static long resumeAutomation(Context c) {
+        SharedPreferences sp = p(c);
+        long remaining = Math.max(0L, sp.getLong(PAUSE_REMAINING_MS, 0L));
+        long next = remaining > 0L ? System.currentTimeMillis() + remaining : 0L;
+        sp.edit()
+                .putBoolean(RUNNING, true)
+                .putBoolean(PAUSED, false)
+                .putLong(PAUSE_REMAINING_MS, 0L)
+                .putLong(NEXT_ACTION_AT, next)
+                .apply();
+        return remaining;
     }
 
     static Set<String> skipped(Context c) {

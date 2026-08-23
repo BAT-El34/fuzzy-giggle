@@ -157,7 +157,45 @@ sleep 2
 dismiss_quickstep_anr
 adb shell uiautomator dump /sdcard/after-start.xml >/dev/null || true
 adb pull /sdcard/after-start.xml artifacts/after-start.xml >/dev/null || true
-sleep 28
+
+# 0.8.5 regression: pause and resume through the persistent accessibility overlay.
+python3 - <<'PY'
+import re, subprocess, xml.etree.ElementTree as ET
+root=ET.parse('artifacts/after-start.xml').getroot()
+for n in root.iter('node'):
+    if n.attrib.get('content-desc') == 'Contrôle flottant DraftWA — pause':
+        m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib.get('bounds',''))
+        if not m: continue
+        x1,y1,x2,y2=map(int,m.groups())
+        subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+        raise SystemExit(0)
+raise SystemExit('floating pause control not found')
+PY
+sleep 1
+adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/overlay-paused-prefs.xml
+grep -q 'name="running" value="false"' artifacts/overlay-paused-prefs.xml
+grep -q 'name="paused" value="true"' artifacts/overlay-paused-prefs.xml
+adb shell uiautomator dump /sdcard/overlay-paused.xml >/dev/null
+adb pull /sdcard/overlay-paused.xml artifacts/overlay-paused.xml >/dev/null
+grep -q 'Contrôle flottant DraftWA — reprendre' artifacts/overlay-paused.xml
+grep -q 'État DraftWA : En pause' artifacts/overlay-paused.xml
+python3 - <<'PY'
+import re, subprocess, xml.etree.ElementTree as ET
+root=ET.parse('artifacts/overlay-paused.xml').getroot()
+for n in root.iter('node'):
+    if n.attrib.get('content-desc') == 'Contrôle flottant DraftWA — reprendre':
+        m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib.get('bounds',''))
+        if not m: continue
+        x1,y1,x2,y2=map(int,m.groups())
+        subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+        raise SystemExit(0)
+raise SystemExit('floating resume control not found')
+PY
+sleep 1
+adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/overlay-resumed-prefs.xml
+grep -q 'name="running" value="true"' artifacts/overlay-resumed-prefs.xml
+grep -q 'name="paused" value="false"' artifacts/overlay-resumed-prefs.xml
+sleep 30
 dismiss_quickstep_anr
 
 adb exec-out screencap -p > artifacts/final.png || true
