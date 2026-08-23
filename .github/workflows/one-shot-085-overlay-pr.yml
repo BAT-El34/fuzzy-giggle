@@ -1,0 +1,31 @@
+name: One-shot DraftWA 0.8.5 overlay PR patch
+
+on:
+  pull_request:
+    branches: [preproduction]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply deterministic patch
+        run: python3 tools/apply_085_overlay.py
+      - name: Commit patch if needed
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo 'No patch changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app tools
+          git commit -m 'DraftWA 0.8.5: add minimal persistent overlay control'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
