@@ -1,1 +1,1 @@
-DraftWA 0.8.4 final safe-tab-scroll integration trigger 2026-08-22.
+DraftWA 0.8.5 final minimal-overlay integration trigger 2026-08-23.

@@ -29,6 +29,7 @@ public class DraftAccessibilityService extends AccessibilityService {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
+    private DraftOverlayController overlayController;
     private long lastLaunchAt = 0L;
     private long lastChatsRecoveryAt = 0L;
     private String lastStatus = "";
@@ -56,6 +57,8 @@ public class DraftAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         Prefs.ensureDefaults(this);
         DiagnosticLog.event(this, "ACCESSIBILITY_CONNECTED", "");
+        overlayController = new DraftOverlayController(this, this::toggleOverlayEngine);
+        overlayController.show();
         schedule(300);
     }
 
@@ -71,6 +74,42 @@ public class DraftAccessibilityService extends AccessibilityService {
     @Override
     public void onInterrupt() {
         status("Service d’accessibilité interrompu", "ACCESSIBILITY_INTERRUPTED");
+    }
+
+    @Override
+    public void onDestroy() {
+        if (overlayController != null) overlayController.destroy();
+        handler.removeCallbacksAndMessages(null);
+        ticking = false;
+        super.onDestroy();
+    }
+
+    private void toggleOverlayEngine() {
+        SharedPreferences sp = Prefs.p(this);
+        if (sp.getBoolean(Prefs.RUNNING, false)) {
+            long remaining = Prefs.pauseAutomation(this);
+            handler.removeCallbacks(ticker);
+            ticking = false;
+            Prefs.p(this).edit().putString(Prefs.STATUS, "En pause").apply();
+            DiagnosticLog.event(this, "OVERLAY_PAUSE", "remainingMs=" + remaining);
+        } else {
+            boolean paused = sp.getBoolean(Prefs.PAUSED, false);
+            if (paused) {
+                long remaining = Prefs.resumeAutomation(this);
+                Prefs.p(this).edit().putString(Prefs.STATUS, "Reprise…").apply();
+                DiagnosticLog.event(this, "OVERLAY_RESUME", "remainingMs=" + remaining);
+            } else {
+                Prefs.resetRunState(this);
+                Prefs.p(this).edit()
+                        .putBoolean(Prefs.RUNNING, true)
+                        .putBoolean(Prefs.PAUSED, false)
+                        .putString(Prefs.STATUS, "Démarrage…")
+                        .apply();
+                DiagnosticLog.event(this, "OVERLAY_START", "");
+            }
+            schedule(80);
+        }
+        if (overlayController != null) overlayController.refreshNow();
     }
 
     private void schedule(long delayMs) {
