@@ -5,8 +5,10 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -15,6 +17,11 @@ import android.widget.TextView;
 
 import java.util.Locale;
 
+/**
+ * Compatibility overlay used only before SYSTEM_ALERT_WINDOW is granted.
+ * As soon as the real application overlay permission exists, ownership is
+ * transferred to DraftOverlayService and this accessibility overlay disappears.
+ */
 final class DraftOverlayController {
     private final Context context;
     private final Runnable toggleAction;
@@ -27,13 +34,17 @@ final class DraftOverlayController {
     private boolean shown;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener listener = (sp, key) -> {
-        if (Prefs.RUNNING.equals(key) || Prefs.PAUSED.equals(key) || Prefs.NEXT_ACTION_AT.equals(key)) {
-            refreshNow();
-        }
+        if (Prefs.RUNNING.equals(key) || Prefs.PAUSED.equals(key) || Prefs.NEXT_ACTION_AT.equals(key)) refreshNow();
     };
 
     private final Runnable clock = new Runnable() {
         @Override public void run() {
+            if (hasSystemOverlayPermission()) {
+                destroy();
+                DraftOverlayService.start(context);
+                DiagnosticLog.event(context, "ACCESSIBILITY_OVERLAY_HANDOFF", "system-overlay");
+                return;
+            }
             refreshNow();
             if (shown) handler.postDelayed(this, 500L);
         }
@@ -47,6 +58,11 @@ final class DraftOverlayController {
 
     void show() {
         if (shown) return;
+        if (hasSystemOverlayPermission()) {
+            DraftOverlayService.start(context);
+            DiagnosticLog.event(context, "ACCESSIBILITY_OVERLAY_DEFERRED", "system-overlay");
+            return;
+        }
         try {
             windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
             if (windowManager == null) throw new IllegalStateException("WindowManager unavailable");
@@ -62,17 +78,14 @@ final class DraftOverlayController {
 
             int defaultX = Math.max(dp(12), context.getResources().getDisplayMetrics().widthPixels - dp(62));
             int defaultY = dp(180);
-            int x = prefs.getInt(Prefs.OVERLAY_X, defaultX);
-            int y = prefs.getInt(Prefs.OVERLAY_Y, defaultY);
             bubbleParams = new WindowManager.LayoutParams(
                     dp(46), dp(46),
                     WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                     PixelFormat.TRANSLUCENT);
             bubbleParams.gravity = Gravity.TOP | Gravity.START;
-            bubbleParams.x = clampX(x);
-            bubbleParams.y = clampY(y);
+            bubbleParams.x = clampX(prefs.getInt(Prefs.OVERLAY_X, defaultX));
+            bubbleParams.y = clampY(prefs.getInt(Prefs.OVERLAY_Y, defaultY));
 
             timer = new TextView(context);
             timer.setGravity(Gravity.CENTER);
@@ -99,7 +112,7 @@ final class DraftOverlayController {
             prefs.registerOnSharedPreferenceChangeListener(listener);
             refreshNow();
             handler.post(clock);
-            DiagnosticLog.event(context, "OVERLAY_SHOWN", "accessibility-overlay");
+            DiagnosticLog.event(context, "OVERLAY_SHOWN", "accessibility-fallback-overlay");
         } catch (Throwable t) {
             DiagnosticLog.event(context, "OVERLAY_SHOW_FAILED", t.getClass().getSimpleName());
             destroy();
@@ -110,27 +123,18 @@ final class DraftOverlayController {
         if (!shown || bubble == null || timer == null) return;
         boolean running = prefs.getBoolean(Prefs.RUNNING, false);
         boolean paused = prefs.getBoolean(Prefs.PAUSED, false);
-
-        if (running) {
-            bubble.setText("Ⅱ");
-            bubble.setContentDescription("Contrôle flottant DraftWA — pause");
-        } else {
-            bubble.setText("▶");
-            bubble.setContentDescription(paused
-                    ? "Contrôle flottant DraftWA — reprendre"
-                    : "Contrôle flottant DraftWA — démarrer");
-        }
+        bubble.setText(running ? "Ⅱ" : "▶");
+        bubble.setContentDescription(running
+                ? "Contrôle flottant DraftWA — pause"
+                : paused ? "Contrôle flottant DraftWA — reprendre" : "Contrôle flottant DraftWA — démarrer");
 
         String label;
-        if (paused) {
-            label = "En pause";
-        } else if (running) {
+        if (paused) label = "En pause";
+        else if (running) {
             long next = prefs.getLong(Prefs.NEXT_ACTION_AT, 0L);
             long remaining = next - System.currentTimeMillis();
             label = next > 0L && remaining > 0L ? "Prochain en " + formatDuration(remaining) : "Traitement…";
-        } else {
-            label = "DraftWA prêt";
-        }
+        } else label = "DraftWA prêt";
         timer.setText(label);
         timer.setContentDescription("État DraftWA : " + label);
     }
@@ -146,6 +150,10 @@ final class DraftOverlayController {
         bubble = null;
         timer = null;
         bubbleParams = null;
+    }
+
+    private boolean hasSystemOverlayPermission() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context);
     }
 
     private String formatDuration(long millis) {
