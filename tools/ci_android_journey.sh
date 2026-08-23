@@ -158,43 +158,47 @@ dismiss_quickstep_anr
 adb shell uiautomator dump /sdcard/after-start.xml >/dev/null || true
 adb pull /sdcard/after-start.xml artifacts/after-start.xml >/dev/null || true
 
-# 0.8.5 regression: pause and resume through the persistent accessibility overlay.
-python3 - <<'PY'
-import re, subprocess, xml.etree.ElementTree as ET
-root=ET.parse('artifacts/after-start.xml').getroot()
-for n in root.iter('node'):
-    if n.attrib.get('content-desc') == 'Contrôle flottant DraftWA — pause':
-        m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib.get('bounds',''))
-        if not m: continue
-        x1,y1,x2,y2=map(int,m.groups())
-        subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
-        raise SystemExit(0)
-raise SystemExit('floating pause control not found')
+# 0.8.5 regression. Accessibility overlays are outside the application
+# accessibility tree on some Android releases, so UiAutomator is not the source
+# of truth. Prove the overlay was created, touch its deterministic fresh-install
+# coordinates, and verify that the real engine state pauses and resumes.
+adb logcat -d -v brief > artifacts/overlay-before-tap-logcat.txt
+grep -q 'OVERLAY_SHOWN' artifacts/overlay-before-tap-logcat.txt
+
+read SCREEN_W SCREEN_H DENSITY <<<"$(python3 - <<'PY'
+import re, subprocess
+size=subprocess.check_output(['adb','shell','wm','size'],text=True)
+density=subprocess.check_output(['adb','shell','wm','density'],text=True)
+m=re.search(r'(?:Override|Physical) size:\s*(\d+)x(\d+)',size)
+d=re.search(r'(?:Override|Physical) density:\s*(\d+)',density)
+if not m or not d:
+    raise SystemExit('cannot resolve emulator display metrics')
+print(m.group(1),m.group(2),d.group(1))
 PY
+)"
+BUBBLE_X=$(( SCREEN_W - (39 * DENSITY + 80) / 160 ))
+BUBBLE_Y=$(( (203 * DENSITY + 80) / 160 ))
+printf 'screen=%sx%s density=%s bubble=%s,%s\n' "$SCREEN_W" "$SCREEN_H" "$DENSITY" "$BUBBLE_X" "$BUBBLE_Y" > artifacts/overlay-tap-coordinates.txt
+
+adb exec-out screencap -p > artifacts/overlay-running.png || true
+adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
 sleep 1
 adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/overlay-paused-prefs.xml
 grep -q 'name="running" value="false"' artifacts/overlay-paused-prefs.xml
 grep -q 'name="paused" value="true"' artifacts/overlay-paused-prefs.xml
-adb shell uiautomator dump /sdcard/overlay-paused.xml >/dev/null
-adb pull /sdcard/overlay-paused.xml artifacts/overlay-paused.xml >/dev/null
-grep -q 'Contrôle flottant DraftWA — reprendre' artifacts/overlay-paused.xml
-grep -q 'État DraftWA : En pause' artifacts/overlay-paused.xml
-python3 - <<'PY'
-import re, subprocess, xml.etree.ElementTree as ET
-root=ET.parse('artifacts/overlay-paused.xml').getroot()
-for n in root.iter('node'):
-    if n.attrib.get('content-desc') == 'Contrôle flottant DraftWA — reprendre':
-        m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', n.attrib.get('bounds',''))
-        if not m: continue
-        x1,y1,x2,y2=map(int,m.groups())
-        subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
-        raise SystemExit(0)
-raise SystemExit('floating resume control not found')
-PY
+adb logcat -d -v brief > artifacts/overlay-paused-logcat.txt
+grep -q 'OVERLAY_PAUSE' artifacts/overlay-paused-logcat.txt
+adb exec-out screencap -p > artifacts/overlay-paused.png || true
+
+adb shell input tap "$BUBBLE_X" "$BUBBLE_Y"
 sleep 1
 adb shell run-as com.draftwa.mobile cat shared_prefs/draftwa_mobile_v070.xml > artifacts/overlay-resumed-prefs.xml
 grep -q 'name="running" value="true"' artifacts/overlay-resumed-prefs.xml
 grep -q 'name="paused" value="false"' artifacts/overlay-resumed-prefs.xml
+adb logcat -d -v brief > artifacts/overlay-resumed-logcat.txt
+grep -q 'OVERLAY_RESUME' artifacts/overlay-resumed-logcat.txt
+adb exec-out screencap -p > artifacts/overlay-resumed.png || true
+
 sleep 30
 dismiss_quickstep_anr
 
@@ -222,6 +226,8 @@ grep -q 'CONFIRMATION_PASS' artifacts/logcat.txt
 grep -q 'TRANSFORM_PASS' artifacts/logcat.txt
 grep -q 'RESTORED_OK' artifacts/logcat.txt
 grep -q 'SEND_SKIPPED_DIAGNOSTIC' artifacts/logcat.txt
+grep -q 'OVERLAY_PAUSE' artifacts/logcat.txt
+grep -q 'OVERLAY_RESUME' artifacts/logcat.txt
 
 PID="$(adb shell pidof com.draftwa.mobile | tr -d '\r')"
 test -n "$PID"
@@ -234,4 +240,4 @@ if grep -E -q 'ANR in com\.draftwa\.mobile|Application Not Responding: com\.draf
   exit 1
 fi
 
-printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nNO_CALLS_TAB_SWITCH=PASS\nSAFE_SCROLL_ZONE=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\n' "$API_LEVEL" > artifacts/result.txt
+printf 'API=%s\nDIAGNOSTIC_FLOW=PASS\nACCESSIBILITY=PASS\nNO_SEND=PASS\nNO_CALLS_TAB_SWITCH=PASS\nSAFE_SCROLL_ZONE=PASS\nRESTORE=PASS\nNO_FATAL=PASS\nNO_DRAFTWA_ANR=PASS\nOVERLAY_CONTROL=PASS\n' "$API_LEVEL" > artifacts/result.txt
