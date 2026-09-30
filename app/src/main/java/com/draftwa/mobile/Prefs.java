@@ -50,6 +50,11 @@ final class Prefs {
     static final String SCROLL_STALL_COUNT = "scroll_stall_count";
     static final String LIST_MISSING_COUNT = "list_missing_count";
     static final String SKIPPED = "skipped";
+    static final String PROSPECT_MODE = "prospect_mode";
+    static final String PROSPECT_ACTION = "prospect_action";
+    static final String PROSPECT_PHASE = "prospect_phase";
+    static final String PROSPECT_ACTIVE_PHONE = "prospect_active_phone";
+    static final String PROSPECT_OPENED_AT = "prospect_opened_at";
     static final String LEGACY_MIGRATED = "legacy_migrated";
 
     static SharedPreferences p(Context c) {
@@ -81,6 +86,11 @@ final class Prefs {
         if (!sp.contains(PAUSE_REMAINING_MS)) e.putLong(PAUSE_REMAINING_MS, 0L);
         if (!sp.contains(PENDING_DIAGNOSTIC_START)) e.putBoolean(PENDING_DIAGNOSTIC_START, false);
         if (!sp.contains(STATUS)) e.putString(STATUS, "Prêt");
+        if (!sp.contains(PROSPECT_MODE)) e.putBoolean(PROSPECT_MODE, false);
+        if (!sp.contains(PROSPECT_ACTION)) e.putString(PROSPECT_ACTION, "DRAFT");
+        if (!sp.contains(PROSPECT_PHASE)) e.putString(PROSPECT_PHASE, "IDLE");
+        if (!sp.contains(PROSPECT_ACTIVE_PHONE)) e.putString(PROSPECT_ACTIVE_PHONE, "");
+        if (!sp.contains(PROSPECT_OPENED_AT)) e.putLong(PROSPECT_OPENED_AT, 0L);
         e.apply();
     }
 
