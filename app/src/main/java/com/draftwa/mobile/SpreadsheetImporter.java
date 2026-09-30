@@ -3,176 +3,280 @@ package com.draftwa.mobile;
 import android.content.ContentResolver;
 import android.net.Uri;
 
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
-import org.xml.sax.InputSource;
+import org.xml.sax.Attributes;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.SAXParserFactory;
 
 final class SpreadsheetImporter {
-    static List<ProspectRecord> importFile(ContentResolver resolver, Uri uri, String name) throws Exception {
-        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
-        try (InputStream in = resolver.openInputStream(uri)) {
-            if (in == null) throw new IllegalArgumentException("Fichier illisible");
-            List<String[]> rows = lower.endsWith(".csv") ? readCsv(in) : readXlsx(in);
-            return validate(rows);
-        }
-    }
+    private static final int HEADER_SCAN_LIMIT = 50;
 
-    private static List<ProspectRecord> validate(List<String[]> rows) {
-        if (rows.isEmpty()) throw new IllegalArgumentException("Le fichier est vide");
-        String[] h = rows.get(0);
-        if (h.length < 4
-                || !eq(h[0], "prospect_id")
-                || !eq(h[1], "nom")
-                || !eq(h[2], "telephones")
-                || !eq(h[3], "message")) {
-            throw new IllegalArgumentException("Colonnes requises: prospect_id | nom | telephones | message");
-        }
-        List<ProspectRecord> out = new ArrayList<>();
-        for (int i = 1; i < rows.size(); i++) {
-            String[] r = rows.get(i);
-            String id = cell(r, 0);
-            String name = cell(r, 1);
-            String phones = cell(r, 2);
-            String msg = cell(r, 3);
-            if (id.trim().isEmpty() && name.trim().isEmpty() && phones.trim().isEmpty() && msg.trim().isEmpty()) continue;
-            if (id.trim().isEmpty()) throw new IllegalArgumentException("Ligne " + (i + 1) + ": prospect_id vide");
-            if (phones.trim().isEmpty()) throw new IllegalArgumentException("Ligne " + (i + 1) + ": telephones vide");
-            if (msg.trim().isEmpty()) throw new IllegalArgumentException("Ligne " + (i + 1) + ": message vide");
-            ProspectRecord p = new ProspectRecord(id, name, phones, msg);
-            if (p.phones.isEmpty()) {
-                p.status = ProspectRecord.NO_WHATSAPP;
-                p.lastError = "Aucun numéro mobile valide après normalisation";
-            }
-            out.add(p);
-        }
-        if (out.isEmpty()) throw new IllegalArgumentException("Aucun prospect exploitable");
-        return out;
-    }
-
-    private static boolean eq(String a, String b) {
-        String s = a == null ? "" : a.trim().toLowerCase(Locale.ROOT)
-                .replace("é", "e").replace("è", "e").replace("ê", "e");
-        return s.equals(b);
-    }
-
-    private static String cell(String[] row, int i) { return i < row.length && row[i] != null ? row[i] : ""; }
-
-    private static List<String[]> readCsv(InputStream in) throws Exception {
-        BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-        List<String[]> rows = new ArrayList<>();
-        String line;
-        char sep = ',';
-        boolean first = true;
-        while ((line = br.readLine()) != null) {
-            if (first) {
-                if (line.indexOf(';') >= 0 && line.indexOf(',') < 0) sep = ';';
-                first = false;
-            }
-            rows.add(parseCsvLine(line, sep));
-        }
-        return rows;
-    }
-
-    private static String[] parseCsvLine(String line, char sep) {
-        List<String> cells = new ArrayList<>();
-        StringBuilder b = new StringBuilder();
-        boolean quoted = false;
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (c == '"') {
-                if (quoted && i + 1 < line.length() && line.charAt(i + 1) == '"') { b.append('"'); i++; }
-                else quoted = !quoted;
-            } else if (c == sep && !quoted) {
-                cells.add(b.toString()); b.setLength(0);
-            } else b.append(c);
-        }
-        cells.add(b.toString());
-        return cells.toArray(new String[0]);
-    }
-
-    private static List<String[]> readXlsx(InputStream in) throws Exception {
-        Map<String, byte[]> entries = new HashMap<>();
-        try (ZipInputStream zip = new ZipInputStream(in)) {
-            ZipEntry e;
-            byte[] buf = new byte[8192];
-            while ((e = zip.getNextEntry()) != null) {
-                if (e.isDirectory()) continue;
-                String n = e.getName();
-                if (!n.equals("xl/sharedStrings.xml") && !n.equals("xl/worksheets/sheet1.xml")) continue;
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
+    static SpreadsheetImportResult importFile(ContentResolver resolver, Uri uri, String name, File cacheDir) throws Exception {
+        File temp = File.createTempFile("draftwa_import_", ".bin", cacheDir);
+        try {
+            try (InputStream in = resolver.openInputStream(uri);
+                 FileOutputStream out = new FileOutputStream(temp)) {
+                if (in == null) throw new IllegalArgumentException("Fichier illisible");
+                byte[] buffer = new byte[64 * 1024];
                 int read;
-                while ((read = zip.read(buf)) > 0) out.write(buf, 0, read);
-                entries.put(n, out.toByteArray());
+                while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
             }
+
+            String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+            boolean csv = lower.endsWith(".csv") || lower.endsWith(".txt");
+            if (!csv && !looksLikeZip(temp)) {
+                throw new IllegalArgumentException("Format non pris en charge. Utilise un fichier .xlsx ou .csv.");
+            }
+
+            RowCollector collector = new RowCollector();
+            if (csv) readCsv(temp, collector);
+            else readXlsx(temp, collector);
+            return collector.finish();
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            temp.delete();
         }
-        byte[] sheet = entries.get("xl/worksheets/sheet1.xml");
-        if (sheet == null) throw new IllegalArgumentException("La première feuille Excel est introuvable");
-        List<String> shared = parseShared(entries.get("xl/sharedStrings.xml"));
-        Document doc = parseXml(sheet);
-        NodeList rowNodes = doc.getElementsByTagName("row");
-        List<String[]> rows = new ArrayList<>();
-        for (int i = 0; i < rowNodes.getLength(); i++) {
-            Element row = (Element) rowNodes.item(i);
-            NodeList cells = row.getElementsByTagName("c");
-            String[] values = new String[4];
-            for (int c = 0; c < cells.getLength(); c++) {
-                Element ce = (Element) cells.item(c);
-                String ref = ce.getAttribute("r");
-                int col = columnIndex(ref);
-                if (col < 0 || col > 3) continue;
-                String type = ce.getAttribute("t");
-                String value = "";
-                if ("inlineStr".equals(type)) {
-                    NodeList ts = ce.getElementsByTagName("t");
-                    if (ts.getLength() > 0) value = ts.item(0).getTextContent();
-                } else {
-                    NodeList vs = ce.getElementsByTagName("v");
-                    if (vs.getLength() > 0) value = vs.item(0).getTextContent();
-                    if ("s".equals(type)) {
-                        try { value = shared.get(Integer.parseInt(value)); } catch (Throwable ignored) {}
+    }
+
+    private static boolean looksLikeZip(File file) {
+        try (FileInputStream in = new FileInputStream(file)) {
+            int a = in.read(), b = in.read();
+            return a == 'P' && b == 'K';
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static void readXlsx(File file, RowCollector collector) throws Exception {
+        try (ZipFile zip = new ZipFile(file)) {
+            List<String> shared = readSharedStrings(zip);
+            ZipEntry sheet = zip.getEntry("xl/worksheets/sheet1.xml");
+            if (sheet == null) {
+                for (java.util.Enumeration<? extends ZipEntry> e = zip.entries(); e.hasMoreElements();) {
+                    ZipEntry candidate = e.nextElement();
+                    if (!candidate.isDirectory()
+                            && candidate.getName().startsWith("xl/worksheets/sheet")
+                            && candidate.getName().endsWith(".xml")) {
+                        sheet = candidate;
+                        break;
                     }
                 }
-                values[col] = value == null ? "" : value;
             }
-            for (int k = 0; k < values.length; k++) if (values[k] == null) values[k] = "";
-            rows.add(values);
+            if (sheet == null) throw new IllegalArgumentException("Aucune feuille Excel lisible n’a été trouvée");
+
+            SAXParserFactory factory = secureSaxFactory();
+            try (InputStream in = zip.getInputStream(sheet)) {
+                factory.newSAXParser().parse(in, new WorksheetHandler(shared, collector));
+            }
         }
-        return rows;
     }
 
-    private static List<String> parseShared(byte[] xml) throws Exception {
-        List<String> out = new ArrayList<>();
-        if (xml == null) return out;
-        Document doc = parseXml(xml);
-        NodeList sis = doc.getElementsByTagName("si");
-        for (int i = 0; i < sis.getLength(); i++) out.add(sis.item(i).getTextContent());
+    private static List<String> readSharedStrings(ZipFile zip) throws Exception {
+        ZipEntry entry = zip.getEntry("xl/sharedStrings.xml");
+        List<String> shared = new ArrayList<>();
+        if (entry == null) return shared;
+
+        SAXParserFactory factory = secureSaxFactory();
+        try (InputStream in = zip.getInputStream(entry)) {
+            factory.newSAXParser().parse(in, new DefaultHandler() {
+                boolean inSi = false;
+                boolean inText = false;
+                StringBuilder current = new StringBuilder();
+
+                @Override public void startElement(String uri, String localName, String qName, Attributes attributes) {
+                    if ("si".equals(qName)) {
+                        inSi = true;
+                        current.setLength(0);
+                    } else if (inSi && "t".equals(qName)) {
+                        inText = true;
+                    }
+                }
+
+                @Override public void characters(char[] ch, int start, int length) {
+                    if (inSi && inText) current.append(ch, start, length);
+                }
+
+                @Override public void endElement(String uri, String localName, String qName) {
+                    if ("t".equals(qName)) inText = false;
+                    else if ("si".equals(qName)) {
+                        shared.add(current.toString());
+                        inSi = false;
+                    }
+                }
+            });
+        }
+        return shared;
+    }
+
+    private static SAXParserFactory secureSaxFactory() throws Exception {
+        SAXParserFactory f = SAXParserFactory.newInstance();
+        f.setNamespaceAware(false);
+        try { f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true); } catch (Throwable ignored) {}
+        try { f.setFeature("http://xml.org/sax/features/external-general-entities", false); } catch (Throwable ignored) {}
+        try { f.setFeature("http://xml.org/sax/features/external-parameter-entities", false); } catch (Throwable ignored) {}
+        return f;
+    }
+
+    private static final class WorksheetHandler extends DefaultHandler {
+        private final List<String> shared;
+        private final RowCollector collector;
+        private String[] row = new String[4];
+        private int rowNumber = 0;
+        private int cellColumn = -1;
+        private String cellType = "";
+        private boolean collectingValue = false;
+        private boolean collectingInlineText = false;
+        private final StringBuilder value = new StringBuilder();
+
+        WorksheetHandler(List<String> shared, RowCollector collector) {
+            this.shared = shared;
+            this.collector = collector;
+        }
+
+        @Override public void startElement(String uri, String localName, String qName, Attributes a) throws SAXException {
+            if ("row".equals(qName)) {
+                row = new String[] {"", "", "", ""};
+                String r = a.getValue("r");
+                try { rowNumber = r == null ? rowNumber + 1 : Integer.parseInt(r); }
+                catch (Throwable ignored) { rowNumber++; }
+            } else if ("c".equals(qName)) {
+                cellColumn = columnIndex(a.getValue("r"));
+                cellType = a.getValue("t") == null ? "" : a.getValue("t");
+                value.setLength(0);
+            } else if ("v".equals(qName)) {
+                collectingValue = true;
+                value.setLength(0);
+            } else if ("t".equals(qName) && "inlineStr".equals(cellType)) {
+                collectingInlineText = true;
+            }
+        }
+
+        @Override public void characters(char[] ch, int start, int length) {
+            if (collectingValue || collectingInlineText) value.append(ch, start, length);
+        }
+
+        @Override public void endElement(String uri, String localName, String qName) throws SAXException {
+            if ("v".equals(qName)) {
+                collectingValue = false;
+            } else if ("t".equals(qName) && collectingInlineText) {
+                collectingInlineText = false;
+            } else if ("c".equals(qName)) {
+                if (cellColumn >= 0 && cellColumn < 4) {
+                    String raw = value.toString();
+                    String resolved = raw;
+                    if ("s".equals(cellType)) {
+                        try {
+                            int index = Integer.parseInt(raw.trim());
+                            resolved = index >= 0 && index < shared.size() ? shared.get(index) : "";
+                        } catch (Throwable ignored) {
+                            resolved = "";
+                        }
+                    }
+                    row[cellColumn] = resolved == null ? "" : resolved;
+                }
+                cellColumn = -1;
+                cellType = "";
+                value.setLength(0);
+            } else if ("row".equals(qName)) {
+                collector.accept(rowNumber, row);
+            }
+        }
+    }
+
+    private static void readCsv(File file, RowCollector collector) throws Exception {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8), 64 * 1024)) {
+            br.mark(64 * 1024);
+            char separator = detectSeparator(br);
+            br.reset();
+            parseCsv(br, separator, collector);
+        }
+    }
+
+    private static char detectSeparator(BufferedReader br) throws Exception {
+        int comma = 0, semicolon = 0, tab = 0;
+        boolean quoted = false;
+        int c;
+        while ((c = br.read()) != -1) {
+            char ch = (char) c;
+            if (ch == '"') quoted = !quoted;
+            else if (!quoted) {
+                if (ch == ',') comma++;
+                else if (ch == ';') semicolon++;
+                else if (ch == '\t') tab++;
+                else if (ch == '\n' || ch == '\r') {
+                    if (comma + semicolon + tab > 0) break;
+                }
+            }
+        }
+        if (tab >= comma && tab >= semicolon && tab > 0) return '\t';
+        if (semicolon > comma) return ';';
+        return ',';
+    }
+
+    private static void parseCsv(Reader reader, char separator, RowCollector collector) throws Exception {
+        List<String> row = new ArrayList<>();
+        StringBuilder cell = new StringBuilder();
+        boolean quoted = false;
+        int rowNumber = 1;
+        int c;
+        while ((c = reader.read()) != -1) {
+            char ch = (char) c;
+            if (ch == '"') {
+                if (quoted) {
+                    reader.mark(1);
+                    int next = reader.read();
+                    if (next == '"') cell.append('"');
+                    else {
+                        quoted = false;
+                        if (next != -1) reader.reset();
+                    }
+                } else {
+                    quoted = true;
+                }
+            } else if (ch == separator && !quoted) {
+                row.add(cell.toString());
+                cell.setLength(0);
+            } else if ((ch == '\n' || ch == '\r') && !quoted) {
+                if (ch == '\r') {
+                    reader.mark(1);
+                    int next = reader.read();
+                    if (next != '\n' && next != -1) reader.reset();
+                }
+                row.add(cell.toString());
+                cell.setLength(0);
+                collector.accept(rowNumber++, firstFour(row));
+                row.clear();
+            } else {
+                cell.append(ch);
+            }
+        }
+        if (cell.length() > 0 || !row.isEmpty()) {
+            row.add(cell.toString());
+            collector.accept(rowNumber, firstFour(row));
+        }
+    }
+
+    private static String[] firstFour(List<String> row) {
+        String[] out = new String[] {"", "", "", ""};
+        for (int i = 0; i < Math.min(4, row.size()); i++) out[i] = row.get(i) == null ? "" : row.get(i);
         return out;
-    }
-
-    private static Document parseXml(byte[] bytes) throws Exception {
-        DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
-        f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        f.setFeature("http://xml.org/sax/features/external-general-entities", false);
-        f.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        f.setExpandEntityReferences(false);
-        return f.newDocumentBuilder().parse(new InputSource(new ByteArrayInputStream(bytes)));
     }
 
     private static int columnIndex(String ref) {
@@ -183,6 +287,89 @@ final class SpreadsheetImporter {
             i++;
         }
         return v - 1;
+    }
+
+    private static String normalizeHeader(String value) {
+        String s = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        if (s.startsWith("\uFEFF")) s = s.substring(1);
+        return s.replace("é", "e").replace("è", "e").replace("ê", "e");
+    }
+
+    private static boolean headerMatches(String[] row) {
+        return row != null && row.length >= 4
+                && "prospect_id".equals(normalizeHeader(row[0]))
+                && "nom".equals(normalizeHeader(row[1]))
+                && "telephones".equals(normalizeHeader(row[2]))
+                && "message".equals(normalizeHeader(row[3]));
+    }
+
+    private static boolean allBlank(String[] row) {
+        if (row == null) return true;
+        for (String s : row) if (s != null && !s.trim().isEmpty()) return false;
+        return true;
+    }
+
+    private static final class RowCollector {
+        final List<ProspectRecord> records = new ArrayList<>();
+        final Set<String> ids = new HashSet<>();
+        boolean headerFound = false;
+        int headerRow = -1;
+        int sourceRows = 0;
+        int skippedEmpty = 0;
+        int skippedNoPhone = 0;
+        int skippedInvalidPhone = 0;
+        int skippedMalformed = 0;
+
+        void accept(int rowNumber, String[] row) throws SAXException {
+            if (!headerFound) {
+                if (headerMatches(row)) {
+                    headerFound = true;
+                    headerRow = rowNumber;
+                    return;
+                }
+                if (!allBlank(row) && rowNumber >= HEADER_SCAN_LIMIT) {
+                    throw new SAXException("En-têtes introuvables. Les 4 premières colonnes doivent être : prospect_id | nom | telephones | message");
+                }
+                return;
+            }
+
+            sourceRows++;
+            if (allBlank(row)) {
+                skippedEmpty++;
+                return;
+            }
+
+            String id = row[0] == null ? "" : row[0].trim();
+            String name = row[1] == null ? "" : row[1].trim();
+            String phones = row[2] == null ? "" : row[2].trim();
+            String message = row[3] == null ? "" : row[3];
+
+            if (phones.isEmpty()) {
+                skippedNoPhone++;
+                return;
+            }
+            if (id.isEmpty() || message.trim().isEmpty() || ids.contains(id)) {
+                skippedMalformed++;
+                return;
+            }
+
+            ProspectRecord prospect = new ProspectRecord(id, name, phones, message);
+            if (prospect.phones.isEmpty()) {
+                skippedInvalidPhone++;
+                return;
+            }
+
+            ids.add(id);
+            records.add(prospect);
+        }
+
+        SpreadsheetImportResult finish() {
+            if (!headerFound) {
+                throw new IllegalArgumentException("En-têtes introuvables. Les 4 premières colonnes doivent être : prospect_id | nom | telephones | message");
+            }
+            return new SpreadsheetImportResult(records, sourceRows, skippedEmpty, skippedNoPhone,
+                    skippedInvalidPhone, skippedMalformed, headerRow);
+        }
     }
 
     private SpreadsheetImporter() {}
