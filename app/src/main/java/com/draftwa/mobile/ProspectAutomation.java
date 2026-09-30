@@ -41,6 +41,13 @@ final class ProspectAutomation {
                     .putString(Prefs.STATUS, "Base Excel terminée")
                     .apply();
             DiagnosticLog.event(service, "PROSPECT_QUEUE_DONE", "");
+            RemoteNotificationManager.send(
+                    service,
+                    "CAMPAIGN_COMPLETE",
+                    "DraftWA - campagne terminée",
+                    "La campagne est terminée. Progression : " + ProspectStore.completed(service) + "/" + ProspectStore.total(service)
+                            + ", envoyés : " + ProspectStore.sent(service)
+                            + ", brouillons : " + ProspectStore.drafted(service) + ".");
             return true;
         }
 
