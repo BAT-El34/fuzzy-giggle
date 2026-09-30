@@ -416,6 +416,7 @@ public class MainActivity extends Activity {
             e.putBoolean(Prefs.REMOTE_NOTIFICATIONS, remoteNotifications.isChecked());
             e.putString(Prefs.NOTIFICATION_EMAIL, notificationEmail.getText().toString().trim());
             e.apply();
+            if (overlayVisible != null && overlayVisible.isChecked()) DraftOverlayService.start(this);
             refreshStatus();
             return true;
         } catch (Throwable t) {
