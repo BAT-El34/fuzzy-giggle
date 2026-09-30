@@ -129,6 +129,14 @@ public class MainActivity extends Activity {
         opportunity.setOnClickListener(v -> openOpportunityModule());
         root.addView(opportunity, lpMatchWithTop(8));
 
+        section(root, "Prospection par base");
+        TextView databaseHelp = text("Import Excel/CSV avec reprise automatique, détection intelligente des numéros et choix Brouillon ou Envoi.", 13, false);
+        databaseHelp.setTextColor(Color.rgb(84, 101, 111));
+        root.addView(databaseHelp, lpMatch());
+        Button database = primaryButton("Ouvrir Base Excel");
+        database.setOnClickListener(v -> startActivity(new Intent(this, ProspectImportActivity.class)));
+        root.addView(database, lpMatchWithTop(8));
+
         section(root, "Réglages essentiels");
         condition = field(root, "Texte de confirmation", "Ex. Soko ou Soko ; Allo.", false);
         remove = field(root, "Retraitement / suppression", "Ex. ,Enregistré,", false);
@@ -270,6 +278,7 @@ public class MainActivity extends Activity {
         }
 
         SharedPreferences runPrefs = Prefs.p(this);
+        runPrefs.edit().putBoolean(Prefs.PROSPECT_MODE, false).apply();
         boolean resuming = runPrefs.getBoolean(Prefs.PAUSED, false);
         if (resuming) {
             long remaining = Prefs.resumeAutomation(this);
