@@ -55,6 +55,9 @@ final class Prefs {
     static final String PROSPECT_PHASE = "prospect_phase";
     static final String PROSPECT_ACTIVE_PHONE = "prospect_active_phone";
     static final String PROSPECT_OPENED_AT = "prospect_opened_at";
+    static final String OVERLAY_VISIBLE = "overlay_visible";
+    static final String REMOTE_NOTIFICATIONS = "remote_notifications";
+    static final String NOTIFICATION_EMAIL = "notification_email";
     static final String LEGACY_MIGRATED = "legacy_migrated";
 
     static SharedPreferences p(Context c) {
@@ -91,6 +94,9 @@ final class Prefs {
         if (!sp.contains(PROSPECT_PHASE)) e.putString(PROSPECT_PHASE, "IDLE");
         if (!sp.contains(PROSPECT_ACTIVE_PHONE)) e.putString(PROSPECT_ACTIVE_PHONE, "");
         if (!sp.contains(PROSPECT_OPENED_AT)) e.putLong(PROSPECT_OPENED_AT, 0L);
+        if (!sp.contains(OVERLAY_VISIBLE)) e.putBoolean(OVERLAY_VISIBLE, true);
+        if (!sp.contains(REMOTE_NOTIFICATIONS)) e.putBoolean(REMOTE_NOTIFICATIONS, false);
+        if (!sp.contains(NOTIFICATION_EMAIL)) e.putString(NOTIFICATION_EMAIL, "");
         e.apply();
     }
 
