@@ -29,6 +29,7 @@ public class ProspectImportActivity extends Activity {
     private RadioButton draftMode;
     private RadioButton sendMode;
     private ProgressBar progress;
+    private Button importButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,9 +86,9 @@ public class ProspectImportActivity extends Activity {
         detail.setTextColor(Color.rgb(84,101,111));
         root.addView(detail, matchTop(5));
 
-        Button pick = primaryButton("Importer un fichier");
-        pick.setOnClickListener(v -> pickFile());
-        root.addView(pick, matchTop(14));
+        importButton = primaryButton("Importer un fichier");
+        importButton.setOnClickListener(v -> pickFile());
+        root.addView(importButton, matchTop(14));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -180,19 +181,63 @@ public class ProspectImportActivity extends Activity {
         if (requestCode != PICK_FILE || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         String name = displayName(uri);
-        try {
-            List<ProspectRecord> records = SpreadsheetImporter.importFile(getContentResolver(), uri, name);
-            ProspectStore.replace(this, records, name);
-            Prefs.p(this).edit()
-                    .putBoolean(Prefs.PROSPECT_MODE, true)
-                    .putString(Prefs.PROSPECT_PHASE, "IDLE")
-                    .putString(Prefs.PROSPECT_ACTIVE_PHONE, "")
-                    .apply();
-            Toast.makeText(this, records.size() + " prospects importés", Toast.LENGTH_LONG).show();
-            refreshSummary();
-        } catch (Throwable t) {
-            Toast.makeText(this, t.getMessage() == null ? "Import impossible" : t.getMessage(), Toast.LENGTH_LONG).show();
+        if (importButton != null) {
+            importButton.setEnabled(false);
+            importButton.setText("Analyse du classeur…");
         }
+        if (progress != null) progress.setIndeterminate(true);
+        summary.setText("Lecture du fichier en cours. Les lignes sans contact ou inutilisables seront ignorées automatiquement.");
+
+        new Thread(() -> {
+            try {
+                SpreadsheetImportResult result = SpreadsheetImporter.importFile(
+                        getContentResolver(), uri, name, getCacheDir());
+
+                runOnUiThread(() -> {
+                    if (progress != null) progress.setIndeterminate(false);
+                    if (importButton != null) {
+                        importButton.setEnabled(true);
+                        importButton.setText("Importer un fichier");
+                    }
+
+                    if (result.imported <= 0) {
+                        summary.setText("Aucun prospect exploitable trouvé. " + result.skippedTotal()
+                                + " ligne(s) ont été ignorées. La base précédente a été conservée.");
+                        Toast.makeText(this, "Aucun prospect exploitable • base précédente conservée", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    ProspectStore.replace(this, result, name);
+                    Prefs.p(this).edit()
+                            .putBoolean(Prefs.PROSPECT_MODE, true)
+                            .putString(Prefs.PROSPECT_PHASE, "IDLE")
+                            .putString(Prefs.PROSPECT_ACTIVE_PHONE, "")
+                            .apply();
+                    Toast.makeText(this, result.shortSummary(), Toast.LENGTH_LONG).show();
+                    refreshSummary();
+                });
+            } catch (Throwable t) {
+                final String message = importErrorMessage(t);
+                runOnUiThread(() -> {
+                    if (progress != null) progress.setIndeterminate(false);
+                    if (importButton != null) {
+                        importButton.setEnabled(true);
+                        importButton.setText("Importer un fichier");
+                    }
+                    summary.setText("Import non effectué. La base précédente est conservée.\n" + message);
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                });
+            }
+        }, "draftwa-spreadsheet-import").start();
+    }
+
+    private String importErrorMessage(Throwable t) {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+        String msg = cause.getMessage();
+        if (msg == null || msg.trim().isEmpty()) msg = t.getMessage();
+        if (msg == null || msg.trim().isEmpty()) msg = "Le fichier n’a pas pu être lu";
+        return msg;
     }
 
     private String displayName(Uri uri) {
@@ -238,10 +283,14 @@ public class ProspectImportActivity extends Activity {
         int drafted = ProspectStore.drafted(this);
         String source = ProspectStore.sourceName(this);
         if (progress != null) progress.setProgress(CampaignStats.percent(this));
+        int skipped = ProspectStore.importSkipped(this);
         summary.setText(total == 0
                 ? "Aucune base importée."
-                : "Fichier : " + source + "\nProgression : " + done + " / " + total
-                    + "\nEnvoyés : " + sent + " • Brouillons : " + drafted);
+                : "Fichier : " + source + "\nProspects chargés : " + total
+                    + (skipped > 0 ? " • Lignes ignorées : " + skipped : "")
+                    + "\nProgression : " + done + " / " + total
+                    + "\nEnvoyés : " + sent + " • Brouillons : " + drafted
+                    + (skipped > 0 ? "\n" + ProspectStore.importSkipDetails(this) : ""));
     }
 
     private TextView text(String s, int sp, boolean bold) {
