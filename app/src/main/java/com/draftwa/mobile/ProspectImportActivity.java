@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -55,20 +56,34 @@ public class ProspectImportActivity extends Activity {
         intro.setTextColor(Color.rgb(84,101,111));
         root.addView(intro, matchTop(8));
 
+        LinearLayout formatHeader = new LinearLayout(this);
+        formatHeader.setOrientation(LinearLayout.HORIZONTAL);
+        formatHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        TextView formatTitle = text("Format Excel requis", 15, true);
+        LinearLayout.LayoutParams formatTitleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        formatHeader.addView(formatTitle, formatTitleLp);
+
+        ImageButton copy = new ImageButton(this);
+        copy.setImageResource(R.drawable.ic_copy);
+        copy.setContentDescription("Copier les instructions du classeur");
+        copy.setBackgroundColor(Color.TRANSPARENT);
+        copy.setPadding(dp(10), dp(10), dp(10), dp(10));
+        copy.setOnClickListener(v -> copyWorkbookInstructions());
+        if (android.os.Build.VERSION.SDK_INT >= 26) copy.setTooltipText("Copier le format Excel");
+        formatHeader.addView(copy, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        root.addView(formatHeader, matchTop(14));
+
         TextView format = text(
-                "Format obligatoire des 4 premières colonnes : prospect_id | nom | telephones | message",
+                "prospect_id | nom | telephones | message",
                 14, true);
-        root.addView(format, matchTop(14));
+        root.addView(format, matchTop(3));
 
         TextView detail = text(
-                "telephones : plusieurs numéros autorisés avec /. Les espaces, +, tirets et parenthèses sont supprimés avant analyse. Les numéros fixes togolais de plage 22 sont ignorés.",
+                "Touchez l’icône Copier pour récupérer les 4 colonnes obligatoires et leurs règles. Plusieurs numéros sont séparés uniquement par /. Les espaces, +, tirets et parenthèses sont supprimés avant analyse. Les numéros fixes togolais de plage 22 sont ignorés.",
                 13, false);
         detail.setTextColor(Color.rgb(84,101,111));
         root.addView(detail, matchTop(5));
-
-        Button copy = button("⧉ Copier les instructions du classeur");
-        copy.setOnClickListener(v -> copyWorkbookInstructions());
-        root.addView(copy, matchTop(6));
 
         Button pick = primaryButton("Importer un fichier");
         pick.setOnClickListener(v -> pickFile());
@@ -134,12 +149,12 @@ public class ProspectImportActivity extends Activity {
     }
 
     private void copyWorkbookInstructions() {
-        String instructions = "Format obligatoire DraftWA\n"
-                + "Colonne A : prospect_id - identifiant unique et obligatoire\n"
-                + "Colonne B : nom - nom du prospect ou établissement\n"
-                + "Colonne C : telephones - un ou plusieurs numéros séparés uniquement par /\n"
-                + "Colonne D : message - message WhatsApp complet\n\n"
-                + "Règles téléphones : DraftWA supprime espaces, +, tirets et parenthèses avant analyse, ignore les fixes togolais de plage 22, teste les numéros dans l’ordre et s’arrête dès qu’un numéro WhatsApp valide est trouvé.";
+        String instructions = "| Colonne | En-tête exact | Règle |\n"
+                + "| --- | --- | --- |\n"
+                + "| A | prospect_id | Identifiant unique et obligatoire |\n"
+                + "| B | nom | Nom du prospect, entreprise ou établissement |\n"
+                + "| C | telephones | Un ou plusieurs numéros. Plusieurs numéros sont séparés uniquement par / |\n"
+                + "| D | message | Message WhatsApp complet à placer en brouillon ou à envoyer |";
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("Instructions DraftWA Excel", instructions));
