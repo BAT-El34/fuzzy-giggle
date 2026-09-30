@@ -30,6 +30,7 @@ public class DraftAccessibilityService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
     private DraftOverlayController overlayController;
+    private ProspectAutomation prospectAutomation;
     private long lastLaunchAt = 0L;
     private long lastChatsRecoveryAt = 0L;
     private String lastStatus = "";
@@ -59,6 +60,7 @@ public class DraftAccessibilityService extends AccessibilityService {
         DiagnosticLog.event(this, "ACCESSIBILITY_CONNECTED", "");
         overlayController = new DraftOverlayController(this, this::toggleOverlayEngine);
         overlayController.show();
+        prospectAutomation = new ProspectAutomation(this);
         schedule(300);
     }
 
@@ -136,6 +138,13 @@ public class DraftAccessibilityService extends AccessibilityService {
             return;
         }
         DiagnosticLog.event(this, "WA_PACKAGE_OK", WA_PACKAGE);
+
+        if (Prefs.p(this).getBoolean(Prefs.PROSPECT_MODE, false)) {
+            if (prospectAutomation == null) prospectAutomation = new ProspectAutomation(this);
+            prospectAutomation.tick(root);
+            schedule(500);
+            return;
+        }
 
         AccessibilityNodeInfo editor = firstById(root, "entry");
 

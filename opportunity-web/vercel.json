@@ -6,6 +6,9 @@
     "api/opportunities/boundary.js": { "maxDuration": 20, "memory": 512 },
     "api/opportunities/export.js": { "maxDuration": 30, "memory": 512 },
     "api/opportunities/health.js": { "maxDuration": 10, "memory": 256 },
+    "api/notifications/send.js": { "maxDuration": 20, "memory": 256 },
+    "api/ai/report.js": { "maxDuration": 60, "memory": 512 },
+    "api/ai/chat.js": { "maxDuration": 60, "memory": 512 },
     "api/android-lab/status.js": { "maxDuration": 10, "memory": 256 },
     "api/android-lab/recipes.js": { "maxDuration": 20, "memory": 256 },
     "api/android-lab/instances.js": { "maxDuration": 35, "memory": 256 },
@@ -23,6 +26,20 @@
         { "key": "Cache-Control", "value": "no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/api/notifications/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/api/ai/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },
     {

@@ -20,16 +20,18 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private EditText condition, remove, timezone;
+    private EditText condition, remove, timezone, notificationEmail;
     private EditText yMin, yMax, zMin, zMax, xMin, xMax, dayHour, eveningHour;
-    private CheckBox greeting, diagnostic, autoUpdate, autoDownload, destroyRejected;
+    private CheckBox greeting, diagnostic, autoUpdate, autoDownload, destroyRejected, overlayVisible, remoteNotifications;
     private TextView status, readiness, updateStatus;
+    private ProgressBar operationProgress;
     private LinearLayout advancedContainer;
     private Button advancedToggle;
     private UpdateManager.UpdateInfo pendingUpdate;
@@ -96,6 +98,11 @@ public class MainActivity extends Activity {
         statusLp.setMargins(0, dp(16), 0, dp(8));
         root.addView(status, statusLp);
 
+        operationProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        operationProgress.setMax(100);
+        operationProgress.setProgress(0);
+        root.addView(operationProgress, lpMatchWithTop(6));
+
         readiness = text("", 13, false);
         readiness.setTextColor(Color.rgb(84, 101, 111));
         readiness.setPadding(dp(4), dp(4), dp(4), dp(8));
@@ -129,6 +136,22 @@ public class MainActivity extends Activity {
         opportunity.setOnClickListener(v -> openOpportunityModule());
         root.addView(opportunity, lpMatchWithTop(8));
 
+        section(root, "Prospection par base");
+        TextView databaseHelp = text("Import Excel/CSV avec reprise automatique, détection intelligente des numéros et choix Brouillon ou Envoi.", 13, false);
+        databaseHelp.setTextColor(Color.rgb(84, 101, 111));
+        root.addView(databaseHelp, lpMatch());
+        Button database = primaryButton("Ouvrir Base Excel");
+        database.setOnClickListener(v -> startActivity(new Intent(this, ProspectImportActivity.class)));
+        root.addView(database, lpMatchWithTop(8));
+
+        section(root, "Rapport IA & Chat");
+        TextView aiHelp = text("Analyse la progression de la campagne et pose des questions au chat opérationnel.", 13, false);
+        aiHelp.setTextColor(Color.rgb(84, 101, 111));
+        root.addView(aiHelp, lpMatch());
+        Button ai = primaryButton("Ouvrir Rapport IA & Chat");
+        ai.setOnClickListener(v -> startActivity(new Intent(this, AiActivity.class)));
+        root.addView(ai, lpMatchWithTop(8));
+
         section(root, "Réglages essentiels");
         condition = field(root, "Texte de confirmation", "Ex. Soko ou Soko ; Allo.", false);
         remove = field(root, "Retraitement / suppression", "Ex. ,Enregistré,", false);
@@ -144,6 +167,7 @@ public class MainActivity extends Activity {
 
         section(advancedContainer, "Règles complémentaires");
         destroyRejected = check(advancedContainer, "Détruire les brouillons non conformes (sinon Conserver)");
+        overlayVisible = check(advancedContainer, "Afficher les bulles flottantes pause / reprise");
 
         section(advancedContainer, "Salutation");
         greeting = check(advancedContainer, "Adapter automatiquement Bonjour / Bonsoir");
@@ -168,6 +192,18 @@ public class MainActivity extends Activity {
         TextView diagHelp = text("Désactive ce mode uniquement après validation sur ton téléphone.", 13, false);
         diagHelp.setTextColor(Color.rgb(84, 101, 111));
         advancedContainer.addView(diagHelp);
+
+        section(advancedContainer, "Notifications");
+        remoteNotifications = check(advancedContainer, "Envoyer les notifications importantes par email");
+        notificationEmail = field(advancedContainer, "Adresse email de notification", "exemple@domaine.com", false);
+        Button testNotification = button("Tester la notification");
+        testNotification.setOnClickListener(v -> {
+            if (saveSettings()) {
+                RemoteNotificationManager.send(this, "TEST", "Test DraftWA", "La configuration des notifications DraftWA fonctionne.");
+                Toast.makeText(this, "Test demandé au serveur", Toast.LENGTH_SHORT).show();
+            }
+        });
+        advancedContainer.addView(testNotification, lpMatchWithTop(6));
 
         section(advancedContainer, "Mises à jour");
         autoUpdate = check(advancedContainer, "Vérifier automatiquement au démarrage");
@@ -270,6 +306,7 @@ public class MainActivity extends Activity {
         }
 
         SharedPreferences runPrefs = Prefs.p(this);
+        runPrefs.edit().putBoolean(Prefs.PROSPECT_MODE, false).apply();
         boolean resuming = runPrefs.getBoolean(Prefs.PAUSED, false);
         if (resuming) {
             long remaining = Prefs.resumeAutomation(this);
@@ -375,7 +412,11 @@ public class MainActivity extends Activity {
             e.putBoolean(Prefs.DIAGNOSTIC, diagnostic.isChecked());
             e.putBoolean(Prefs.AUTO_UPDATE, autoUpdate.isChecked());
             e.putBoolean(Prefs.AUTO_DOWNLOAD, autoDownload.isChecked());
+            e.putBoolean(Prefs.OVERLAY_VISIBLE, overlayVisible.isChecked());
+            e.putBoolean(Prefs.REMOTE_NOTIFICATIONS, remoteNotifications.isChecked());
+            e.putString(Prefs.NOTIFICATION_EMAIL, notificationEmail.getText().toString().trim());
             e.apply();
+            if (overlayVisible != null && overlayVisible.isChecked()) DraftOverlayService.start(this);
             refreshStatus();
             return true;
         } catch (Throwable t) {
@@ -402,6 +443,9 @@ public class MainActivity extends Activity {
         diagnostic.setChecked(sp.getBoolean(Prefs.DIAGNOSTIC, true));
         autoUpdate.setChecked(sp.getBoolean(Prefs.AUTO_UPDATE, true));
         autoDownload.setChecked(sp.getBoolean(Prefs.AUTO_DOWNLOAD, true));
+        overlayVisible.setChecked(sp.getBoolean(Prefs.OVERLAY_VISIBLE, true));
+        remoteNotifications.setChecked(sp.getBoolean(Prefs.REMOTE_NOTIFICATIONS, false));
+        notificationEmail.setText(sp.getString(Prefs.NOTIFICATION_EMAIL, ""));
     }
 
     private void checkUpdates(boolean installAfterCheck) {
@@ -436,6 +480,7 @@ public class MainActivity extends Activity {
                     : accessibilityEnabled ? Color.rgb(226, 244, 239) : Color.rgb(255, 247, 214);
             status.setBackgroundColor(bg);
         }
+        if (operationProgress != null) operationProgress.setProgress(CampaignStats.percent(this));
         if (readiness != null) {
             readiness.setText((waInstalled ? "✓" : "!") + " WhatsApp Business : " + (waInstalled ? "détecté" : "à installer")
                     + "\n" + (accessibilityEnabled ? "✓" : "!") + " Accessibilité DraftWA : " + (accessibilityEnabled ? "activée" : "à activer")

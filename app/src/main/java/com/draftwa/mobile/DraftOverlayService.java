@@ -46,6 +46,11 @@ public class DraftOverlayService extends Service {
     private boolean shown;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener listener = (sp, key) -> {
+        if (Prefs.OVERLAY_VISIBLE.equals(key)) {
+            if (sp.getBoolean(Prefs.OVERLAY_VISIBLE, true)) showOverlay();
+            else destroyOverlay();
+            return;
+        }
         if (Prefs.RUNNING.equals(key) || Prefs.PAUSED.equals(key) || Prefs.NEXT_ACTION_AT.equals(key)) {
             refreshNow();
         }
@@ -89,7 +94,8 @@ public class DraftOverlayService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (!shown) showOverlay();
+        if (prefs.getBoolean(Prefs.OVERLAY_VISIBLE, true) && !shown) showOverlay();
+        if (!prefs.getBoolean(Prefs.OVERLAY_VISIBLE, true) && shown) destroyOverlay();
         return START_STICKY;
     }
 
@@ -144,7 +150,7 @@ public class DraftOverlayService extends Service {
     }
 
     private void showOverlay() {
-        if (shown || !canDraw(this)) return;
+        if (shown || !canDraw(this) || !prefs.getBoolean(Prefs.OVERLAY_VISIBLE, true)) return;
         try {
             windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
             if (windowManager == null) throw new IllegalStateException("WindowManager unavailable");
