@@ -2,6 +2,9 @@ package com.draftwa.mobile;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
@@ -15,6 +18,7 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ProgressBar;
 
 import java.util.List;
 
@@ -23,6 +27,7 @@ public class ProspectImportActivity extends Activity {
     private TextView summary;
     private RadioButton draftMode;
     private RadioButton sendMode;
+    private ProgressBar progress;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,9 +66,17 @@ public class ProspectImportActivity extends Activity {
         detail.setTextColor(Color.rgb(84,101,111));
         root.addView(detail, matchTop(5));
 
+        Button copy = button("⧉ Copier les instructions du classeur");
+        copy.setOnClickListener(v -> copyWorkbookInstructions());
+        root.addView(copy, matchTop(6));
+
         Button pick = primaryButton("Importer un fichier");
         pick.setOnClickListener(v -> pickFile());
         root.addView(pick, matchTop(14));
+
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        root.addView(progress, matchTop(12));
 
         summary = text("", 14, false);
         summary.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -118,6 +131,20 @@ public class ProspectImportActivity extends Activity {
         });
         root.addView(clear, matchTop(7));
         return scroll;
+    }
+
+    private void copyWorkbookInstructions() {
+        String instructions = "Format obligatoire DraftWA\n"
+                + "Colonne A : prospect_id - identifiant unique et obligatoire\n"
+                + "Colonne B : nom - nom du prospect ou établissement\n"
+                + "Colonne C : telephones - un ou plusieurs numéros séparés uniquement par /\n"
+                + "Colonne D : message - message WhatsApp complet\n\n"
+                + "Règles téléphones : DraftWA supprime espaces, +, tirets et parenthèses avant analyse, ignore les fixes togolais de plage 22, teste les numéros dans l’ordre et s’arrête dès qu’un numéro WhatsApp valide est trouvé.";
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("Instructions DraftWA Excel", instructions));
+            Toast.makeText(this, "Instructions copiées", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void pickFile() {
@@ -195,6 +222,7 @@ public class ProspectImportActivity extends Activity {
         int sent = ProspectStore.sent(this);
         int drafted = ProspectStore.drafted(this);
         String source = ProspectStore.sourceName(this);
+        if (progress != null) progress.setProgress(CampaignStats.percent(this));
         summary.setText(total == 0
                 ? "Aucune base importée."
                 : "Fichier : " + source + "\nProgression : " + done + " / " + total
